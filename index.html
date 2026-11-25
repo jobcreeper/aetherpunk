@@ -3440,7 +3440,7 @@ document.addEventListener('pointerup', e => {
   const kind = d.kind, i = d.i, wi = d.wi, over = $('#cancel').classList.contains('hot');
   clearDrag(); S.suppress = true; setTimeout(() => { S.suppress = false; }, 120);
   if (over || !hit) return;
-  if (kind === 'card' && hit.dataset.drop === 'weaver' && hit.dataset.wp === '0') doPlay(i, +hit.dataset.wi);
+  if (kind === 'card' && hit.dataset.drop === 'weaver' && hit.dataset.wp === String(ME)) doPlay(i, +hit.dataset.wi);
   else if (kind === 'weaver' && hit.dataset.drop === 'field') doDrive(wi);
   else if (kind === 'card') toast('ลากการ์ดไปวางบน Weaver ของคุณ');
 });
