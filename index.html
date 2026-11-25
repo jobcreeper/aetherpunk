@@ -2784,15 +2784,25 @@ async function peerRoom(code, host) {
     peer.on('open', () => { clearTimeout(t); res(); });
     peer.on('error', e => { clearTimeout(t); const er = new Error(e && e.type === 'unavailable-id' ? 'id-taken' : 'net'); er.detail = 'peerjs:' + ((e && e.type) || e); rej(er); });
   });
-  peer.on('error', e => { if (e && e.type === 'network' || e && e.type === 'disconnected') closeAll('lost'); });
+  /* มือถือพักแอป/ล็อกจอแล้วสัญญาณกับเซิร์ฟเวอร์กลางหลุด: ต่อกลับด้วย id เดิมให้เอง */
+  const recon = () => { if (closed || peer.destroyed) return; try { if (peer.disconnected && peer.reconnect) peer.reconnect(); } catch (e) { /* ignore */ } };
+  peer.on('disconnected', () => { setTimeout(recon, 800); });
+  const vis = () => { if (document.visibilityState === 'visible') recon(); }; document.addEventListener('visibilitychange', vis); const rt = setInterval(() => { if (closed) clearInterval(rt); else recon(); }, 4000);
+  let curErr = null; peer.on('error', e => { if (curErr && e && e.type === 'peer-unavailable') { const f = curErr; curErr = null; f(new Error('no-room')); } else if (e && (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error')) setTimeout(recon, 1500); });
   if (host) {
     peer.on('connection', c => { if (conns.length >= 1) { c.on('open', () => { try { c.send({ t: 'full' }); } catch (e) { /* ignore */ } setTimeout(() => { try { c.close(); } catch (e) { /* ignore */ } }, 300); }); return; } wire(c); });
   } else {
-    await new Promise((res, rej) => {
-      const c = peer.connect(pid, { reliable: true }), t = setTimeout(() => rej(new Error('no-room')), 10000);
-      c.on('open', () => { clearTimeout(t); wire(c); res(); });
-      peer.on('error', e => { if (e && e.type === 'peer-unavailable') { clearTimeout(t); rej(new Error('no-room')); } });
-    });
+    let okc = false;
+    for (let k = 0; k < 4 && !okc; k++) {
+      try {
+        await new Promise((res, rej) => {
+          const c = peer.connect(pid, { reliable: true }), t = setTimeout(() => { curErr = null; rej(new Error('no-room')); }, 8000);
+          curErr = e => { clearTimeout(t); rej(e); };
+          c.on('open', () => { clearTimeout(t); curErr = null; wire(c); res(); });
+        }); okc = true;
+      } catch (e) { if (e.message !== 'no-room') throw e; if (k < 3) await new Promise(r => setTimeout(r, 2500)); }
+    }
+    if (!okc) throw new Error('no-room');
   }
   return { name: pid, peerjs: true, connected: () => !closed && !peer.destroyed, peers: list,
     presence: p => { mine = Object.assign({}, mine, p); Object.keys(mine).forEach(k => { if (mine[k] === null) delete mine[k]; }); sendAll({ t: 'p', p: mine }); fire(); return Promise.resolve(); },
@@ -2800,7 +2810,7 @@ async function peerRoom(code, host) {
     emit: (topic, data) => { sendAll({ t: 'e', topic, data }); return Promise.resolve(); },
     on: (topic, f) => { (hs.ev[topic] = hs.ev[topic] || []).push(f); return () => { hs.ev[topic] = (hs.ev[topic] || []).filter(x => x !== f); }; },
     onClose: f => { hs.cl.push(f); },
-    leave: () => { closed = true; conns.slice().forEach(c => { try { c.close(); } catch (e) { /* ignore */ } }); try { peer.destroy(); } catch (e) { /* ignore */ } return Promise.resolve(); } };
+    leave: () => { closed = true; document.removeEventListener('visibilitychange', vis); conns.slice().forEach(c => { try { c.close(); } catch (e) { /* ignore */ } }); try { peer.destroy(); } catch (e) { /* ignore */ } return Promise.resolve(); } };
 }
 function withTimeout(p, ms, err) { return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(err)), ms); Promise.resolve(p).then(v => { clearTimeout(t); res(v); }, e => { clearTimeout(t); rej(e); }); }); }
 const NET = {
