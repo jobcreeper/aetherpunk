@@ -2804,23 +2804,24 @@ async function peerRoom(code, host) {
 }
 function withTimeout(p, ms, err) { return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(err)), ms); Promise.resolve(p).then(v => { clearTimeout(t); res(v); }, e => { clearTimeout(t); rej(e); }); }); }
 const NET = {
-  r: null, un: null, kind: '', mode: 'auto', code: '',
+  tick: null, r: null, un: null, kind: '', mode: 'auto', code: '',
   /* รหัสห้องตัวแรกบอกวิธีเชื่อม: P = PeerJS · C = ห้องของ claude.ai · L = ทดสอบแท็บเดียวกัน ทำให้เพื่อนใช้วิธีเดียวกับเจ้าของห้องเสมอ */
   async open(code, onPeers, host) {
     await NET.close(); const m = NET.mode, rest = code.slice(1); NET.trace = ['โหมด=' + m + ' · รหัส=' + code + ' · ' + (host ? 'เจ้าของห้อง' : 'เข้าร่วม')];
-    let order; if (m === 'local') order = ['local']; else if (host) order = m === 'peer' ? ['peer'] : m === 'claude' ? ['claude'] : ['peer', 'claude']; else order = [code[0] === 'C' ? 'claude' : code[0] === 'L' ? 'local' : 'peer'];
+    let order; if (m === 'local') order = ['local']; else if (host) order = m === 'peer' ? ['peer'] : m === 'claude' ? ['claude'] : ['claude', 'peer']; else order = [code[0] === 'C' ? 'claude' : code[0] === 'L' ? 'local' : 'peer'];
     let r = null, last = null;
     for (const k of order) {
       const c = (k === 'peer' ? 'P' : k === 'claude' ? 'C' : 'L') + rest, nm = 'ap-' + c.toLowerCase();
+      NET.trace.push('กำลังลอง ' + (k === 'claude' ? 'ห้องของ claude.ai' : k === 'peer' ? 'PeerJS' : 'แท็บเดียวกัน') + ' …'); if (NET.tick) NET.tick();
       try {
         if (k === 'claude') {
-          const room = window.claude && window.claude.use ? await withTimeout(window.claude.use('room'), 6000, 'claude-timeout') : null;
+          const room = window.claude && window.claude.use ? await withTimeout(window.claude.use('room'), 4000, 'claude-timeout') : null;
           if (!room || !room.join) throw new Error('claude-na');
-          r = await withTimeout(room.join(nm), 8000, 'claude-timeout');
+          r = await withTimeout(room.join(nm), 6000, 'claude-timeout');
         } else if (k === 'peer') r = await peerRoom(c, host);
         else { if (typeof BroadcastChannel === 'undefined') throw new Error('net'); r = localRoom(nm); }
         NET.kind = k; NET.code = c; NET.trace.push(k + ': เชื่อมต่อแล้ว'); break;
-      } catch (e) { last = e; NET.trace.push(k + ' ผิดพลาด: ' + (e.detail || e.message)); if (e.message === 'id-taken') throw e; }
+      } catch (e) { last = e; NET.trace.push(k + ' ผิดพลาด: ' + (e.detail || e.message)); if (NET.tick) NET.tick(); if (e.message === 'id-taken') throw e; }
     }
     if (!r) throw last || new Error('net');
     NET.r = r; NET.un = r.onPeers(c => onPeers(c.peers)); return r;
@@ -2966,7 +2967,7 @@ async function pvpEnter(code, host) {
   if (PVP.busy) return;
   PVP.host = host; PVP.ready = false; PVP.busy = true; $('#pvp-create').disabled = $('#pvp-join').disabled = true;
   PVP.name = pvpClean($('#pvp-name').value) || ('ผู้เล่น' + ((Math.random() * 90 + 10) | 0)); try { localStorage.setItem(KEY + '-nick', PVP.name); } catch (e) { /* ignore */ }
-  const eb = $('#pvp-err'); eb.style.display = ''; eb.textContent = 'กำลังเชื่อมต่อ… (รอได้สูงสุดประมาณ 15 วินาที)'; let err = null;
+  const eb = $('#pvp-err'); eb.style.display = ''; eb.textContent = 'กำลังเชื่อมต่อ… (รอได้สูงสุดประมาณ 15 วินาที)'; let err = null; NET.tick = () => { if (PVP.busy) eb.textContent = 'กำลังเชื่อมต่อ…\n' + (NET.trace || []).join('\n'); };
   for (let k = 0; k < (host ? 4 : 1); k++) {
     try { await NET.open(code, pvpRender, host); PVP.code = NET.code; err = null; break; } catch (e) { err = e; if (!(host && e.message === 'id-taken')) break; code = pvpCode(code[0]); }
   }
@@ -2977,10 +2978,10 @@ async function pvpEnter(code, host) {
   NET.r.on('sync', pvOnSync); pvpPresence(); pvpRender();
 }
 async function pvpLeave() { PVP.ready = false; await NET.close(); pvpRender(); }
-function pvpMode(v) { if (['auto', 'peer', 'local'].indexOf(v) < 0) v = 'auto'; NET.mode = v; try { localStorage.setItem(KEY + '-net', v); } catch (e) { /* ignore */ } }
+function pvpMode(v) { if (['auto', 'peer', 'local'].indexOf(v) < 0) v = 'auto'; NET.mode = v; try { localStorage.setItem(KEY + '-net2', v); } catch (e) { /* ignore */ } }
 document.addEventListener('change', e => { if (e.target && e.target.id === 'pvp-mode') pvpMode(e.target.value); });
 function openPvp() {
-  try { pvpMode(localStorage.getItem(KEY + '-net') || 'auto'); } catch (e) { /* ignore */ } $('#pvp-mode').value = NET.mode;
+  try { pvpMode(localStorage.getItem(KEY + '-net2') || 'auto'); } catch (e) { /* ignore */ } $('#pvp-mode').value = NET.mode;
   show('s-pvp'); let nk = ''; try { nk = localStorage.getItem(KEY + '-nick') || ''; } catch (e) { /* ignore */ }
   if (!$('#pvp-name').value) $('#pvp-name').value = nk || PVP.name;
   pvpRender();
