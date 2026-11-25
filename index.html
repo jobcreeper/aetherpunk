@@ -666,7 +666,7 @@ button.zsm { cursor: pointer; }
     <div class="topbar"><button class="btn ghost sm" id="pvp-back">←</button><h2>เล่นกับเพื่อน</h2><span class="lab">เตรียมห้อง</span></div>
     <div class="scroll pvp-body">
       <label class="pvp-l">ชื่อที่แสดง<input id="pvp-name" maxlength="14" placeholder="ชื่อของคุณ" autocomplete="off"></label>
-      <label class="pvp-l">วิธีเชื่อมต่อ<select id="pvp-mode"><option value="auto">อัตโนมัติ (แนะนำ: ห้องของ claude.ai ถ้ามี ไม่งั้นใช้ PeerJS)</option><option value="peer">PeerJS (ใช้ได้ทุกเว็บ เช่น GitHub Pages)</option><option value="local">ทดสอบแท็บเดียวกัน (ไม่ต้องต่อเน็ต)</option></select></label>
+      <label class="pvp-l">วิธีเชื่อมต่อ<select id="pvp-mode"><option value="auto">อัตโนมัติ (แนะนำ: ห้องของ claude.ai ถ้ามี ไม่งั้นใช้ PeerJS)</option><option value="claude">ห้องของ claude.ai (ต้องล็อกอินและมีสิทธิ์ทั้งสองคน)</option><option value="peer">PeerJS (ใช้ได้ทุกเว็บ เช่น GitHub Pages)</option><option value="local">ทดสอบแท็บเดียวกัน (ไม่ต้องต่อเน็ต)</option></select></label>
       <div class="pvp-deck" id="pvp-deckst"></div>
       <div id="pvp-start">
         <div class="pvp-card"><h3>สร้างห้อง</h3><p>ได้รหัส 4 ตัวอักษร ส่งให้เพื่อนเพื่อเข้าห้อง</p><button class="btn" id="pvp-create">สร้างห้องใหม่</button></div>
@@ -2802,22 +2802,34 @@ async function peerRoom(code, host) {
     onClose: f => { hs.cl.push(f); },
     leave: () => { closed = true; conns.slice().forEach(c => { try { c.close(); } catch (e) { /* ignore */ } }); try { peer.destroy(); } catch (e) { /* ignore */ } return Promise.resolve(); } };
 }
+function withTimeout(p, ms, err) { return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(err)), ms); Promise.resolve(p).then(v => { clearTimeout(t); res(v); }, e => { clearTimeout(t); rej(e); }); }); }
 const NET = {
-  r: null, un: null, kind: '', mode: 'auto',
+  r: null, un: null, kind: '', mode: 'auto', code: '',
+  /* รหัสห้องตัวแรกบอกวิธีเชื่อม: P = PeerJS · C = ห้องของ claude.ai · L = ทดสอบแท็บเดียวกัน ทำให้เพื่อนใช้วิธีเดียวกับเจ้าของห้องเสมอ */
   async open(code, onPeers, host) {
-    const nm = 'ap-' + code.toLowerCase(); await NET.close();
-    let r = null, m = NET.mode; NET.trace = ['โหมด=' + m + ' · รหัส=' + code + ' · ' + (host ? 'เจ้าของห้อง' : 'เข้าร่วม')];
-    if (m === 'auto' || m === 'claude') { try { const room = window.claude && window.claude.use ? await window.claude.use('room') : null; if (room && room.join) { r = await room.join(nm); NET.kind = 'claude'; NET.trace.push('ห้อง claude.ai: เชื่อมต่อแล้ว'); } else NET.trace.push('ห้อง claude.ai: ใช้ไม่ได้ในหน้านี้ (ไม่ได้เปิดใน claude.ai หรือไม่มีสิทธิ์)'); } catch (e) { r = null; NET.trace.push('ห้อง claude.ai ผิดพลาด: ' + ((e && (e.code || e.message)) || e)); } }
-    if (!r && (m === 'auto' || m === 'peer')) { try { r = await peerRoom(code, host); NET.kind = 'peer'; NET.trace.push('PeerJS: เชื่อมต่อแล้ว'); } catch (e) { NET.trace.push('PeerJS ผิดพลาด: ' + (e.detail || e.message)); throw e; } }
-    if (!r && m === 'local') { if (typeof BroadcastChannel === 'undefined') throw new Error('net'); r = localRoom(nm); NET.kind = 'local'; }
-    if (!r) throw new Error('net');
+    await NET.close(); const m = NET.mode, rest = code.slice(1); NET.trace = ['โหมด=' + m + ' · รหัส=' + code + ' · ' + (host ? 'เจ้าของห้อง' : 'เข้าร่วม')];
+    let order; if (m === 'local') order = ['local']; else if (host) order = m === 'peer' ? ['peer'] : m === 'claude' ? ['claude'] : ['peer', 'claude']; else order = [code[0] === 'C' ? 'claude' : code[0] === 'L' ? 'local' : 'peer'];
+    let r = null, last = null;
+    for (const k of order) {
+      const c = (k === 'peer' ? 'P' : k === 'claude' ? 'C' : 'L') + rest, nm = 'ap-' + c.toLowerCase();
+      try {
+        if (k === 'claude') {
+          const room = window.claude && window.claude.use ? await withTimeout(window.claude.use('room'), 6000, 'claude-timeout') : null;
+          if (!room || !room.join) throw new Error('claude-na');
+          r = await withTimeout(room.join(nm), 8000, 'claude-timeout');
+        } else if (k === 'peer') r = await peerRoom(c, host);
+        else { if (typeof BroadcastChannel === 'undefined') throw new Error('net'); r = localRoom(nm); }
+        NET.kind = k; NET.code = c; NET.trace.push(k + ': เชื่อมต่อแล้ว'); break;
+      } catch (e) { last = e; NET.trace.push(k + ' ผิดพลาด: ' + (e.detail || e.message)); if (e.message === 'id-taken') throw e; }
+    }
+    if (!r) throw last || new Error('net');
     NET.r = r; NET.un = r.onPeers(c => onPeers(c.peers)); return r;
   },
   async close() { if (NET.un) { try { NET.un(); } catch (e) { /* ignore */ } } NET.un = null; const r = NET.r; NET.r = null; if (r) { try { await r.leave(); } catch (e) { /* ignore */ } } }
 };
 const PVP = { code: '', host: false, ready: false, name: '' };
 const PVP_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-function pvpCode() { let s = ''; for (let i = 0; i < 4; i++) s += PVP_ALPHA[(Math.random() * PVP_ALPHA.length) | 0]; return s; }
+function pvpCode(pre) { let s = pre || 'P'; for (let i = 0; i < 3; i++) s += PVP_ALPHA[(Math.random() * PVP_ALPHA.length) | 0]; return s; }
 function pvpDeckState() {
   if (!S.team || S.team.length !== 4) return { ok: false, why: 'ยังไม่ได้เลือกทีม Weaver 4 ตัว' };
   const err = A.validateDeck(S.team, deckList()); return err ? { ok: false, why: err } : { ok: true, why: 'Deck พร้อม' };
@@ -2949,17 +2961,18 @@ async function pvQuit() {
   S.pv = null; ME = 0; A.setNames(null); S.exited = true; const b = $('#pvbar'); if (b) b.remove();
   PVP.ready = false; await NET.close();
 }
-const PVP_ERR = { 'no-room': 'ไม่พบห้องรหัสนี้ (เจ้าของห้องต้องเปิดห้องค้างไว้ก่อน)', 'id-taken': 'รหัสห้องซ้ำ ลองสร้างใหม่', 'peer-load': 'โหลด PeerJS ไม่ได้ (ตรวจอินเทอร์เน็ต หรือบล็อกสคริปต์)', net: 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง' };
+const PVP_ERR = { 'claude-na': 'ห้องนี้ใช้ห้องสดของ claude.ai ต้องเปิดจากหน้า claude.ai ด้วยบัญชีที่ได้รับสิทธิ์ (ถ้าเข้าไม่ได้ ให้เจ้าของห้องเลือกวิธี PeerJS)', 'claude-timeout': 'ห้องสดของ claude.ai ไม่ตอบสนอง ลองใหม่หรือเลือกวิธี PeerJS', 'no-room': 'ไม่พบห้องรหัสนี้ (เจ้าของห้องต้องเปิดห้องค้างไว้ก่อน)', 'id-taken': 'รหัสห้องซ้ำ ลองสร้างใหม่', 'peer-load': 'โหลด PeerJS ไม่ได้ (ตรวจอินเทอร์เน็ต หรือบล็อกสคริปต์)', net: 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง' };
 async function pvpEnter(code, host) {
-  PVP.host = host; PVP.ready = false; PVP.busy = true;
+  if (PVP.busy) return;
+  PVP.host = host; PVP.ready = false; PVP.busy = true; $('#pvp-create').disabled = $('#pvp-join').disabled = true;
   PVP.name = pvpClean($('#pvp-name').value) || ('ผู้เล่น' + ((Math.random() * 90 + 10) | 0)); try { localStorage.setItem(KEY + '-nick', PVP.name); } catch (e) { /* ignore */ }
-  toast('กำลังเชื่อมต่อ…'); let err = null;
+  const eb = $('#pvp-err'); eb.style.display = ''; eb.textContent = 'กำลังเชื่อมต่อ… (รอได้สูงสุดประมาณ 15 วินาที)'; let err = null;
   for (let k = 0; k < (host ? 4 : 1); k++) {
-    try { PVP.code = code; await NET.open(code, pvpRender, host); err = null; break; } catch (e) { err = e; if (!(host && e.message === 'id-taken')) break; code = pvpCode(); }
+    try { await NET.open(code, pvpRender, host); PVP.code = NET.code; err = null; break; } catch (e) { err = e; if (!(host && e.message === 'id-taken')) break; code = pvpCode(code[0]); }
   }
-  PVP.busy = false;
-  if (err) { toast(PVP_ERR[err.message] || PVP_ERR.net); pvpRender(); const eb = $('#pvp-err'); if (eb) { eb.style.display = ''; eb.textContent = (PVP_ERR[err.message] || PVP_ERR.net) + '\n' + (NET.trace || []).join('\n'); } return; }
-  { const eb = $('#pvp-err'); if (eb) eb.style.display = 'none'; }
+  PVP.busy = false; $('#pvp-create').disabled = $('#pvp-join').disabled = false;
+  if (err) { toast(PVP_ERR[err.message] || PVP_ERR.net); pvpRender(); eb.style.display = ''; eb.textContent = (PVP_ERR[err.message] || PVP_ERR.net) + '\n' + (NET.trace || []).join('\n'); return; }
+  eb.style.display = 'none';
   if (NET.r.onClose) NET.r.onClose(why => { toast(why === 'full' ? 'ห้องเต็มแล้ว (มีผู้เล่นครบสองคน)' : 'การเชื่อมต่อกับห้องหลุด'); pvpLeave(); });
   NET.r.on('sync', pvOnSync); pvpPresence(); pvpRender();
 }
@@ -3348,7 +3361,7 @@ document.addEventListener('click', e => {
     case 'tut-menu': tutEnd(); show('s-title'); break;
     case 't-pvp': openPvp(); break;
     case 'pvp-back': pvpLeave(); show('s-title'); break;
-    case 'pvp-create': pvpEnter(pvpCode(), true); break;
+    case 'pvp-create': pvpEnter(pvpCode(NET.mode === 'claude' ? 'C' : NET.mode === 'local' ? 'L' : 'P'), true); break;
     case 'pvp-join': { const c = String($('#pvp-in').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); if (c.length !== 4) { toast('รหัสห้องมี 4 ตัวอักษร'); break; } pvpEnter(c, false); break; }
     case 'pvp-ready': PVP.ready = !PVP.ready; pvpPresence(); pvpRender(); break;
     case 'pvp-leave': pvpLeave(); break;
