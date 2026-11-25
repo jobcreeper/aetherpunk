@@ -628,6 +628,9 @@ button.zsm { cursor: pointer; }
 .pvp-ok { color: #6fcf97; font-size: 13px; } .pvp-no { color: #f2994a; font-size: 13px; } .pvp-deck { margin: 0 0 10px; } .pvp-note { color: var(--mute); font-size: 12px; margin: 6px 0 10px; } .pvp-net { font-size: 11px; color: var(--mute); }
 .pvp-l select { display: block; margin-top: 4px; padding: 9px 10px; border-radius: 8px; border: 1px solid #ffffff30; background: #1a1424; color: inherit; font: inherit; width: 100%; box-sizing: border-box; }
 
+#pvbar { position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 60; padding: 5px 14px; border-radius: 999px; background: #1a1424ee; border: 1px solid #ffffff33; color: #ddd; font-size: 12px; display: none; pointer-events: none; }
+#pvbar.on { display: block; } #pvbar.mine { border-color: #c9a24a; color: #e8c872; } #pvbar.warn { border-color: #f2994a; color: #f2994a; }
+
 </style>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <symbol id="i-out" viewBox="0 0 16 16"><path d="M8 1c1 3 4 4.5 4 8a4 4 0 0 1-8 0c0-1.6.8-2.6 1.6-3.4.2 1 .8 1.6 1.4 1.8C7 5.5 7 3 8 1z"/></symbol>
@@ -668,7 +671,7 @@ button.zsm { cursor: pointer; }
       <div id="pvp-start">
         <div class="pvp-card"><h3>สร้างห้อง</h3><p>ได้รหัส 4 ตัวอักษร ส่งให้เพื่อนเพื่อเข้าห้อง</p><button class="btn" id="pvp-create">สร้างห้องใหม่</button></div>
         <div class="pvp-card"><h3>เข้าห้องเพื่อน</h3><p>ใส่รหัสห้อง 4 ตัวอักษรที่เพื่อนส่งให้</p><div class="row"><input id="pvp-in" maxlength="4" placeholder="เช่น K7QM" autocomplete="off" style="text-transform:uppercase;width:110px"><button class="btn" id="pvp-join">เข้าห้อง</button></div></div>
-        <p class="pvp-note">ตอนนี้ห้องสองคนยังอยู่ในขั้นเตรียมหน้า: สร้าง/เข้าห้อง เห็นกันและกดพร้อมได้ แต่ยังเริ่มเกมจริงไม่ได้</p>
+        <p class="pvp-note">เล่นสลับเทิร์นแบบสด: เจ้าของห้องกด "เริ่มเกม" เมื่อทั้งสองกดพร้อม · Snare ในโหมดนี้ทำงานอัตโนมัติ · ถ้าเปิดใน claude.ai แล้วเพื่อนมีสิทธิ์แค่ดู (View) ให้เลือก "PeerJS" ทั้งสองฝั่ง</p>
       </div>
       <div id="pvp-room" style="display:none">
         <div class="pvp-card"><div class="lab">รหัสห้อง</div><div class="pvp-code" id="pvp-code"></div><div class="row"><button class="btn ghost sm" id="pvp-copy">คัดลอกคำเชิญ</button><span class="pvp-net" id="pvp-net"></span></div></div>
@@ -791,7 +794,10 @@ const FACTION_IDS = Object.keys(FACTIONS);
 /* ---------------- helpers (hoisted) ---------------- */
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function shuffle(a, rng) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
-function who(p) { return p === 0 ? 'คุณ' : 'บอท'; }
+let WHONAMES = null;
+function setNames(a) { WHONAMES = a || null; }
+function who(p) { return WHONAMES ? WHONAMES[p] : (p === 0 ? 'คุณ' : 'บอท'); }
+function isH(g, p) { return !!g.interactive && (g.humans ? !!g.humans[p] : p === 0); }
 function log(g, text, extra) { g.log.push(Object.assign({ t: text }, extra || {})); if (g.log.length > 3000) g.log.shift(); }
 function logp(g, p, text, extra) { log(g, who(p) + ' · ' + text, Object.assign({ p }, extra || {})); }
 function fxq(g, o) { g.fx.push(o); }
@@ -840,7 +846,7 @@ const BP_MAX = 5;
 function bpMakeRoom(g, p, cb) {
   const pl = g.p[p]; if (pl.bp.length < BP_MAX) { cb(); return; }
   const rm = k => { const b = pl.bp.splice(k, 1)[0]; pl.smelter.push(b.card.id); logp(g, p, 'โซน Blueprint เต็ม ' + BP_MAX + ' ใบ: ' + b.card.name + ' ออกจากโซน'); cb(); };
-  if (g.interactive && p === 0) { pickCard(g, p, pl.bp.map((b, i) => ({ c: b.card.id, i })), 'โซน Blueprint เต็ม (' + BP_MAX + ') เลือก 1 ใบที่จะออก', rm); return; }
+  if (isH(g, p)) { pickCard(g, p, pl.bp.map((b, i) => ({ c: b.card.id, i })), 'โซน Blueprint เต็ม (' + BP_MAX + ') เลือก 1 ใบที่จะออก', rm); return; }
   let bi = 0; pl.bp.forEach((b, i) => { if (b.stab < pl.bp[bi].stab) bi = i; }); rm(bi);
 }
 /* Blueprint objects: Stability is an accessor so Railgun can fire the moment the total reaches a threshold */
@@ -858,7 +864,7 @@ function snareCands(g, d) {
   return out;
 }
 function dmgAction(info) { if (!info) return false; if (info.kind === 'drive') return true; const c = CARDS[info.cid]; return !!c && (c.type === 'blast' || /nipe/i.test(c.text || '')); }
-function snareWindow(g, actor, info) { const d = 1 - actor; if (g.snareLock || !dmgAction(info)) return; if (g.interactive && d === 0) return; const cs = snareCands(g, d); if (!cs.length) return; g.snareLock = true; try { useSnare(g, d, cs[0].cid, cs[0].wi); } finally { g.snareLock = false; } }
+function snareWindow(g, actor, info) { const d = 1 - actor; if (g.snareLock || !dmgAction(info)) return; if (isH(g, d) && !g.pvp) return; const cs = snareCands(g, d); if (!cs.length) return; g.snareLock = true; try { useSnare(g, d, cs[0].cid, cs[0].wi); } finally { g.snareLock = false; } }
 function snareHuman(g, actor, info) {
   if (!g.interactive || actor !== 1 || !dmgAction(info)) return false;
   if (g.snareAsked) { g.snareAsked = false; return false; }
@@ -967,7 +973,7 @@ const SYNC_OF = {};
 const syl = (g, p, wi) => (W(g, p, wi).sy || 0);
 function pickBpDeck(g, p, start) { const pl = g.p[p]; const idx = []; pl.deck.forEach((c, i) => { if (CARDS[c].type === 'bp') idx.push(i); }); if (!idx.length) { logp(g, p, 'ไม่พบ Blueprint ใน Deck'); return; }
   const take = k => { const c = pl.deck.splice(k, 1)[0]; addHand(g, p, c); shuffle(pl.deck, g.rng); logp(g, p, 'เลือก ' + CARDS[c].name + ' จาก Deck'); if (start) { const n = (RULES.on ? RULES.hand : 5) + (p !== g.first ? (RULES.hand2 || 0) : 0); if (pl.hand.length > n && !g.p[p].mullDone) pl.deck.unshift(pl.hand.shift()); } };
-  if (g.interactive && p === 0) { const seen = {}, cand = []; idx.forEach(i => { const c = pl.deck[i]; if (!seen[c]) { seen[c] = 1; cand.push({ c, i }); } }); pickCard(g, p, cand, 'เลือก Blueprint จาก Deck (ได้ 1 ใบเข้ามือ)', k => take(pl.deck.indexOf(cand.find(x => x.i === k).c))); return; }
+  if (isH(g, p)) { const seen = {}, cand = []; idx.forEach(i => { const c = pl.deck[i]; if (!seen[c]) { seen[c] = 1; cand.push({ c, i }); } }); pickCard(g, p, cand, 'เลือก Blueprint จาก Deck (ได้ 1 ใบเข้ามือ)', k => take(pl.deck.indexOf(cand.find(x => x.i === k).c))); return; }
   idx.sort((a, b) => CARDS[pl.deck[a]].pr - CARDS[pl.deck[b]].pr); take(idx[0]); }
 function pipDrive(g, p, wi) { const pl = g.p[p], w = W(g, p, wi); if (!pl.deck.length) return; const conf = !!(w.mod && w.mod.id === 'v54'); const top = pl.deck[0], c = CARDS[top];
   if (conf && c.type === 'module') { pl.deck.shift(); pl.smelter.push(top); logp(g, p, 'Pip’s Confuse: ทิ้ง Module ' + c.name); fireAll(g, p, 'w_discard', { cards: [top] }); return; }
@@ -986,11 +992,11 @@ function placeBp(g, p, wi, cid, stab) { const pl = g.p[p], c = CARDS[cid]; bpMak
 /* ---- Verdant-Flux experimental cards, as designed in the user's sheet ([P] = provisional name) ---- */
 N('v41', 'Scrap Offering [P]', 'verdant', 'mech', 2, '[MS] Discard up to 3 Modules from your hand. One of your weavers gains 1 Output and 1 Stability for each card discarded.', { can(g, p) { return g.p[p].hand.some(x => CARDS[x].type === 'module') ? null : 'ไม่มี Module ในมือ'; }, fx(g, p) { const pl = g.p[p]; let n = 0;
     const finish = () => { if (n <= 0) return; const k = n; sel(g, p, 'own', t => { const w = W(g, t.p, t.wi); w.perm += k; w.pstab += k; w.stab += k; logp(g, p, wname(g, t.p, t.wi) + ' +' + k + ' Output/Stability'); }, { title: 'เลือก Weaver (+' + k + ' Output/Stability)' }); };
-    if (!(g.interactive && p === 0)) { const spare = () => pl.hand.findIndex(x => CARDS[x].type === 'module' && (!CARDS[x].bound || !pl.weavers.some(w => w.cd === 0 && w.id === CARDS[x].bound))); for (let k = 0; k < 3; k++) { const i = spare(); if (i < 0) break; discardHand(g, p, i); n++; } finish(); return; }
+    if (!isH(g, p)) { const spare = () => pl.hand.findIndex(x => CARDS[x].type === 'module' && (!CARDS[x].bound || !pl.weavers.some(w => w.cd === 0 && w.id === CARDS[x].bound))); for (let k = 0; k < 3; k++) { const i = spare(); if (i < 0) break; discardHand(g, p, i); n++; } finish(); return; }
     const step = k => { const l = []; pl.hand.forEach((x, i) => { if (CARDS[x].type === 'module') l.push({ c: x, i }); }); if (k <= 0 || !l.length) { finish(); return; } pickCard(g, p, l, 'ทิ้ง Module (เหลือ ' + k + ')', i => { discardHand(g, p, i); n++; step(k - 1); }); }; step(3); },
   aiS(g, p) { const pl = g.p[p]; const spare = pl.hand.filter(x => CARDS[x].type === 'module' && (!CARDS[x].bound || !pl.weavers.some(w => w.cd === 0 && w.id === CARDS[x].bound))).length; return spare >= 1 ? 3 : -1; } });
 N('v42', "Let's Burn [P]", 'verdant', 'mech', 1, 'Select up to 5 cards from your deck and move them to your Smelter.', { can(g, p) { return g.p[p].deck.length >= 10 ? null : 'Deck เหลือน้อยเกินไป'; }, fx(g, p) { const pl = g.p[p];
-    if (!(g.interactive && p === 0)) { const idx = pl.deck.map((c, i) => i).sort((a, b) => (CARDS[pl.deck[a]].type === 'module' ? 0 : 1) - (CARDS[pl.deck[b]].type === 'module' ? 0 : 1)).slice(0, 5).sort((a, b) => b - a); idx.forEach(i => { const c = pl.deck.splice(i, 1)[0]; pl.smelter.push(c); }); logp(g, p, 'เผา ' + idx.length + ' ใบจาก Deck'); return; }
+    if (!isH(g, p)) { const idx = pl.deck.map((c, i) => i).sort((a, b) => (CARDS[pl.deck[a]].type === 'module' ? 0 : 1) - (CARDS[pl.deck[b]].type === 'module' ? 0 : 1)).slice(0, 5).sort((a, b) => b - a); idx.forEach(i => { const c = pl.deck.splice(i, 1)[0]; pl.smelter.push(c); }); logp(g, p, 'เผา ' + idx.length + ' ใบจาก Deck'); return; }
     const step = k => { if (k <= 0 || pl.deck.length <= 6) return; const l = pl.deck.map((c, i) => ({ c, i })); pickCard(g, p, l, 'เลือกการ์ดใน Deck ลง Smelter (เหลือ ' + k + ')', i => { const c = pl.deck.splice(i, 1)[0]; pl.smelter.push(c); logp(g, p, 'เผา ' + CARDS[c].name); step(k - 1); }); }; step(5); },
   aiS(g, p) { const pl = g.p[p]; return pl.hand.includes('v55') && pl.smelter.filter(x => CARDS[x].type === 'module').length < 3 ? 3 : -1; } });
 N('v43', 'Retune: Verdant-Flux', 'verdant', 'mech', 1, 'Until the end of this turn, all 4 dots of this weaver count as Verdant.', { fx(g, p, wi) { W(g, p, wi).tune = ['verdant', 'verdant', 'verdant', 'verdant']; logp(g, p, wname(g, p, wi) + ' จูนเป็น Verdant'); }, aiS: (g, p, wi) => tuneScore(g, p, wi, 'verdant') });
@@ -1273,7 +1279,7 @@ function jinxPick(g, p, wi, ctx, cb) {
   const en = g.p[1 - p], c = [];
   en.weavers.forEach((w, i) => { if (w.cd === 0 && en.stage !== i) c.push({ p: 1 - p, wi: i }); });
   if (!c.length) { cb(null); return; }
-  if (g.interactive && p === 0) { g.pend = { p, kind: 'target', cands: c, title: 'Jinx: เลือก Weaver ศัตรูใน Workshop (หรือกด "ปกติ")', cb, optional: true, skip: () => cb(null) }; return; }
+  if (isH(g, p)) { g.pend = { p, kind: 'target', cands: c, title: 'Jinx: เลือก Weaver ศัตรูใน Workshop (หรือกด "ปกติ")', cb, optional: true, skip: () => cb(null) }; return; }
   const a = ctx.bonus + WEAVERS.jinx.out; let best = null;
   for (const x of c) { const w = W(g, x.p, x.wi); if (w.stab + w.supp <= a && (!best || outOf(g, x.p, x.wi) > outOf(g, best.p, best.wi))) best = x; }
   cb(best);
@@ -1284,7 +1290,7 @@ function snareCheck(g, p, wi) {
   const pl = g.p[p]; if (avail(pl) < 1 || g.phase === 'over') return;
   const hi = pl.hand.findIndex(id => { const sn = CARDS[id].snare; return sn && sn.on === 'taken' && pl.pressure >= CARDS[id].pr && (!sn.spec || G(g, p, wi, sn.spec)) && (!sn.can || sn.can(g, p, wi)); });
   if (hi < 0) return;
-  if (g.interactive && p === 0) { if (!g.snareQ.some(q => q.cid === pl.hand[hi] && q.wi === wi)) g.snareQ.push({ p, wi, cid: pl.hand[hi] }); return; }
+  if (isH(g, p) && !g.pvp) { if (!g.snareQ.some(q => q.cid === pl.hand[hi] && q.wi === wi)) g.snareQ.push({ p, wi, cid: pl.hand[hi] }); return; }
   useSnare(g, p, pl.hand[hi], wi);
 }
 function useSnare(g, p, cid, wi) {
@@ -1302,7 +1308,7 @@ function sel(g, p, kind, cb, o) {
   const add = q => g.p[q].weavers.forEach((w, i) => { if (w.cd === 0 && !(o.not && o.not(q, i))) c.push({ p: q, wi: i }); });
   if (kind === 'enemy') add(1 - p); else if (kind === 'own') add(p); else { add(p); add(1 - p); }
   if (!c.length) { logp(g, p, 'ไม่มีเป้าหมาย'); return false; }
-  if (g.interactive && p === 0) { g.pend = { p, kind: 'target', cands: c, title: o.title || 'เลือกเป้าหมาย', cb }; return true; }
+  if (isH(g, p)) { g.pend = { p, kind: 'target', cands: c, title: o.title || 'เลือกเป้าหมาย', cb }; return true; }
   let best = c[0], bs = -1e9;
   for (const x of c) { const w = W(g, x.p, x.wi); const mine = x.p === p; let s = g.rng() * 0.3;
     if (o.pref) s += o.pref(x, w);
@@ -1318,7 +1324,7 @@ function resolveTarget(g, p, q, wi) {
 }
 function pickCard(g, p, list, title, cb) { // list: [{c, i}] ; cb(i)
   if (!list.length) return false;
-  if (g.interactive && p === 0) { g.pend = { p, kind: 'cards', list, title, cb }; return true; }
+  if (isH(g, p)) { g.pend = { p, kind: 'cards', list, title, cb }; return true; }
   const pr = x => CARDS[x.c].pr * 2 + (CARDS[x.c].type === 'module' ? 1 : 0) + g.rng();
   let best = list[0]; for (const x of list) if (pr(x) > pr(best)) best = x; cb(best.i); return true;
 }
@@ -1337,13 +1343,13 @@ function takeFromSmelter(g, p, pred, n, title) {
   if (!list.length) return;
   pickCard(g, p, list, title + ' (เหลือ ' + n + ')', k => { const c = pl.smelter.splice(k, 1)[0]; addHand(g, p, c); takeFromSmelter(g, p, pred, n - 1, title); });
 }
-function askYN(g, p, title, cb) { if (g.interactive && p === 0) { g.pend = { p, kind: 'yn', title, cb }; return; } cb(true); }
+function askYN(g, p, title, cb) { if (isH(g, p)) { g.pend = { p, kind: 'yn', title, cb }; return; } cb(true); }
 function resolveYN(g, p, yes) { const pd = g.pend; if (!pd || pd.p !== p || pd.kind !== 'yn') return false; g.pend = null; pd.cb(!!yes); checkWin(g); return true; }
 function librarian(g, p, n, rep) {
   const pl = g.p[p]; if (n <= 0 || g.phase === 'over') return;
   const top = pl.deck.splice(0, 3); if (!top.length) return;
   pickCard(g, p, top.map((c, i) => ({ c, i })), 'เลือก 1 ใบเข้ามือ (ที่เหลือไปไว้ใต้ Deck)', k => { const c = top.splice(k, 1)[0]; addHand(g, p, c); const done = () => { if (n - 1 > 0) librarian(g, p, n - 1, rep); else if (rep && avail(pl) > 0 && g.phase !== 'over') askYN(g, p, 'Stream Librarian: จ่าย Aether/Condense Aether 1 เพื่อใช้ซ้ำไหม? (เหลือ ' + avail(pl) + ')', yes => { if (yes) { spendAether(g, p, 1); librarian(g, p, 1, rep); } }); };
-    if (g.interactive && p === 0 && top.length === 2 && top[0] !== top[1]) pickCard(g, p, top.map((x, i) => ({ c: x, i })), 'เรียงใต้กอง: เลือกใบที่ใส่ก่อน (อยู่สูงกว่า) — อีกใบจะอยู่ล่างสุด', j => { const f = top.splice(j, 1)[0]; pl.deck.push(f, ...top); done(); });
+    if (isH(g, p) && top.length === 2 && top[0] !== top[1]) pickCard(g, p, top.map((x, i) => ({ c: x, i })), 'เรียงใต้กอง: เลือกใบที่ใส่ก่อน (อยู่สูงกว่า) — อีกใบจะอยู่ล่างสุด', j => { const f = top.splice(j, 1)[0]; pl.deck.push(f, ...top); done(); });
     else { pl.deck.push(...top); done(); } });
 }
 
@@ -1415,7 +1421,7 @@ function circBest(g, p, card, opts) { const mine = teamLet(g, p), opp = teamLet(
 function circPlay(g, p, cid) {
   const card = CARDS[cid]; const opts = circOptions(g, card); if (!opts.length) return false;
   const st = g.circStats || (g.circStats = { placed: 0, removed: 0, opts: 0, plays: [] }); st.opts += opts.length;
-  if (g.interactive && p === 0) { g.pend = { p, kind: 'circ', cid, opts, title: 'วาง Circuit ' + card.name }; return true; }
+  if (isH(g, p)) { g.pend = { p, kind: 'circ', cid, opts, title: 'วาง Circuit ' + card.name }; return true; }
   circFinish(g, p, cid, ((CIRC.smart && (CIRC.smartOnly == null || CIRC.smartOnly === p)) ? circBest(g, p, card, opts).o : opts[Math.floor(g.rng() * opts.length)])); return true;
 }
 function resolveCirc(g, p, k) {
@@ -1429,18 +1435,19 @@ function newPlayer(team, deck, rng) {
 }
 function newGame(o) {
   const rng = o.rng || mulberry32(o.seed || (Date.now() & 0xffffffff));
-  const g = { rng, p: [], log: [], fx: [], turn: 0, cur: 0, phase: 'mulligan', winner: null, pend: null, snareQ: [], circ: [], interactive: !!o.interactive, first: o.first !== undefined ? o.first : (rng() < 0.5 ? 0 : 1) };
+  const g = { rng, p: [], log: [], fx: [], turn: 0, cur: 0, phase: 'mulligan', winner: null, pend: null, snareQ: [], circ: [], interactive: !!o.interactive, pvp: !!o.pvp, humans: o.pvp ? [true, true] : null, first: o.first !== undefined ? o.first : (rng() < 0.5 ? 0 : 1) };
   for (let i = 0; i < 2; i++) { g.p.push(newPlayer(o.teams[i], o.decks[i], rng)); g.p[i].core = CORE.on && !CORE.noCore ? ((o.cores && o.cores[i]) || chooseCore(o.teams[i], o.decks[i])) : null; }
+  if (o.pvp) for (let i = 0; i < 2; i++) g.p[i].mrng = mulberry32((o.mseed || 1) * 31 + i * 7919);
   if (CX.on) for (let i = 0; i < 2; i++) g.p[i].cx = cxSetup(o.cx && o.cx[i]);
   for (let i = 0; i < 2; i++) g.p[i].weavers.forEach((w, wi) => fire(g, i, wi, 'gamestart', {}));
   for (let i = 0; i < 2; i++) { const n = (RULES.on ? RULES.hand : 5) + (i !== g.first ? (RULES.hand2 || 0) : 0); while (g.p[i].hand.length < n) g.p[i].hand.push(g.p[i].deck.shift()); }
-  log(g, (g.first === 0 ? 'คุณ' : 'บอท') + ' เล่นก่อน (เริ่มมือ ' + (RULES.on ? RULES.hand : 5) + ' ใบทั้งสองฝั่ง' + (RULES.on && RULES.barrier ? ' · ฝั่งหลังได้ Barrier' : '') + ')');
+  log(g, who(g.first) + ' เล่นก่อน (เริ่มมือ ' + (RULES.on ? RULES.hand : 5) + ' ใบทั้งสองฝั่ง' + (RULES.on && RULES.barrier ? ' · ฝั่งหลังได้ Barrier' : '') + ')');
   return g;
 }
 function mulligan(g, p, idxs) { /* choose any number of cards: shuffle them back into the deck, draw the same number */
   const pl = g.p[p]; if (g.phase !== 'mulligan' || pl.mullDone) return false;
   const set = [...new Set(idxs)].filter(i => pl.hand[i] !== undefined).sort((x, y) => y - x); if (!set.length) return false;
-  const back = set.map(i => pl.hand.splice(i, 1)[0]); pl.deck.push(...back); shuffle(pl.deck, g.rng);
+  const back = set.map(i => pl.hand.splice(i, 1)[0]); pl.deck.push(...back); shuffle(pl.deck, pl.mrng || g.rng);
   for (let k = 0; k < back.length && pl.deck.length; k++) pl.hand.push(pl.deck.shift());
   pl.mull = back.length; return true;
 }
@@ -1468,7 +1475,7 @@ function bookmarkThen(g, p, k) {
   const pl = g.p[p], bi = pl.weavers.findIndex(w => w.cd === 0 && w.mod && w.mod.id === 'm53' && modActive(w));
   if (bi < 0 || pl.deck.length < 2) { k(); return; }
   const cc = CARDS[pl.deck[0]], mv = () => { pl.deck.push(pl.deck.shift()); logp(g, p, 'Bookmark: ย้ายใบบนสุดไปล่างสุด'); };
-  if (g.interactive && p === 0) { g.phase = 'bookmark'; logp(g, p, 'Bookmark: ใบบนสุดของ Deck คือ ' + cc.name); g.pend = { p, kind: 'yn', title: 'Bookmark: ใบบนสุดคือ “' + cc.name + '” ย้ายไปล่างสุดไหม?', yes: 'ย้ายไปล่างสุด', no: 'เก็บไว้', cb: yes => { if (yes) mv(); k(); } }; return; }
+  if (isH(g, p)) { g.phase = 'bookmark'; logp(g, p, 'Bookmark: ใบบนสุดของ Deck คือ ' + cc.name); g.pend = { p, kind: 'yn', title: 'Bookmark: ใบบนสุดคือ “' + cc.name + '” ย้ายไปล่างสุดไหม?', yes: 'ย้ายไปล่างสุด', no: 'เก็บไว้', cb: yes => { if (yes) mv(); k(); } }; return; }
   const bad = cc.pr > Math.min(PRESS_MAX, pl.pressure + 1) || (cc.type === 'module' && !pl.weavers.some(w => w.cd === 0 && w.id === cc.bound));
   if (bad) mv();
   k();
@@ -1497,7 +1504,7 @@ function endTurn(g, p) {
   if (g.phase !== 'main' || g.cur !== p || g.pend) return false;
   g.snareAsked = false;
   const pl = g.p[p];
-  if (handOver(g, p)) { if (g.interactive && p === 0) return false; botTrim(g, p); }
+  if (handOver(g, p)) { if (isH(g, p)) return false; botTrim(g, p); }
   pl.weavers.forEach((w, i) => { if (w.cd === 0) fire(g, p, i, 'turnend', {}); });
   fireBp(g, p, 'turnend'); fireBp(g, 1 - p, 'turnendOpp'); cxEv(g, p, 'turnend');
   pl.swift = false; pl.shardPlus = 0;
@@ -1715,7 +1722,7 @@ function cxDeckOut(g, p) {
 /* helpers */
 function cxPick(g, p, cands, title, cb, pref) {
   if (!cands.length) { logp(g, p, 'Core: ไม่มีเป้าหมาย'); return false; }
-  if (g.interactive && p === 0) { g.pend = { p, kind: 'target', cands, title, cb }; return true; }
+  if (isH(g, p)) { g.pend = { p, kind: 'target', cands, title, cb }; return true; }
   let b = cands[0], bs = -1e9; for (const c of cands) { const w = W(g, c.p, c.wi); const s = (pref ? pref(c, w) : (g.p[p].stage === c.wi ? 6 : 0) + w.stab) + g.rng() * 0.3; if (s > bs) { bs = s; b = c; } }
   cb(b); return true;
 }
@@ -1724,7 +1731,7 @@ function cxDiscard(g, p, n) {
   const pl = g.p[p]; let left = Math.min(n, pl.hand.length);
   const step = () => {
     if (left <= 0 || g.phase === 'over' || !pl.hand.length) return; left--;
-    if (g.interactive && p === 0) { pickCard(g, p, pl.hand.map((c, i) => ({ c, i })), 'Core: เลือกการ์ดที่จะทิ้ง (เหลือ ' + (left + 1) + ')', i => { discardHand(g, p, i); step(); }); return; }
+    if (isH(g, p)) { pickCard(g, p, pl.hand.map((c, i) => ({ c, i })), 'Core: เลือกการ์ดที่จะทิ้ง (เหลือ ' + (left + 1) + ')', i => { discardHand(g, p, i); step(); }); return; }
     let bi = 0, bv = 1e9; pl.hand.forEach((cid, i) => { const cc = CARDS[cid]; const v = cc.pr * 2 + (cc.type === 'blast' ? 1 : 0) + (cc.type === 'module' && pl.weavers.some(w => w.cd === 0 && w.id === cc.bound) ? 2 : 0) + g.rng(); if (v < bv) { bv = v; bi = i; } });
     discardHand(g, p, bi); step();
   };
@@ -1866,12 +1873,25 @@ function cxFreeStart(g) {
   let wait = false;
   for (let p = 0; p < 2; p++) {
     const cx = g.p[p].cx; if (!cx) continue;
-    if (g.interactive && p === 0) { g.phase = 'cxfree'; g.pend = { p, kind: 'cxfree' }; wait = true; continue; }
+    if (g.pvp) { g.phase = 'cxfree'; g.pvpFree = g.pvpFree || [undefined, undefined]; if (!cx.list.length) g.pvpFree[p] = null; wait = true; continue; }
+    if (isH(g, p)) { g.phase = 'cxfree'; g.pend = { p, kind: 'cxfree' }; wait = true; continue; }
     const fo = cxOpt(p, 'free', 'best');
     if (fo === 'rand') { if (g.rng() < 0.8) cxReveal(g, p, Math.floor(g.rng() * cx.list.length), true); }
     else if (fo === 'best') { let bi = 0, br = 99; cx.list.forEach((k, i) => { const r = CX_RANK.indexOf(k.id); if (r < br) { br = r; bi = i; } }); cxReveal(g, p, bi, true); }
   }
+  if (g.pvp && g.pvpFree) { cxFreePDone(g); return true; }
   return wait;
+}
+function cxFreePDone(g) {
+  if (!g.pvpFree || g.phase !== 'cxfree') return false;
+  if (!g.p.every((q, i) => !q.cx || g.pvpFree[i] !== undefined)) return false;
+  for (let i = 0; i < 2; i++) { if (!g.p[i].cx) continue; const v = g.pvpFree[i]; if (v !== null && v !== undefined) cxReveal(g, i, v, true); else logp(g, i, 'ไม่หงาย Core ตอนเริ่มเกม'); }
+  g.phase = 'mulligan'; startTurn(g, g.first); return true;
+}
+function cxFreeP(g, p, ki) { /* โหมดสองคน: ทั้งสองฝั่งเลือกหงาย Core ฟรีพร้อมกัน แล้วเริ่มเกมเมื่อเลือกครบ */
+  if (!g.pvp || g.phase !== 'cxfree' || !g.pvpFree || g.pvpFree[p] !== undefined) return false;
+  if (ki !== null && ki !== undefined && !(g.p[p].cx.list[ki])) return false;
+  g.pvpFree[p] = ki === undefined ? null : ki; cxFreePDone(g); return true;
 }
 function cxFree(g, p, ki) {
   if (!g.pend || g.pend.kind !== 'cxfree') return false; g.pend = null;
@@ -2176,7 +2196,7 @@ for (const [id, sp] of [['i43', 'IA'], ['i53', 'MS'], ['m42', 'MS MS'], ['m49', 
 for (const id in CARDS) { const c = CARDS[id]; if (c.name) c.name = c.name.replace(/ \[P\]$/, ''); }
 const AE = { pressPer, pressAdd, CG, GW, X6, dmgW, profDeck, CIRC, CIRC_IDS, circOptions, RULES, handOver, trimDiscard, FACTIONS, FACTION_IDS, WEAVERS, WEAVER_IDS, CARDS, CARD_IDS, TYPE_NAME, LIFE, HAND_MAX, DECK_SIZE, TEAM_SIZE, COPY_MAX, PRESS_MAX, AETHER_MAX, TOKEN_CAP, SHARDS,
   newGame, mulligan, mulliganDone, avail, startTurn, endTurn, canDrive, drive, canPlay, play, playCost, outOf, baseOut, maxStab, modActive, resolveTarget, resolveYN, resolveCirc, circCells, skipTarget, resolveCard, useSnare,
-  CX, CXD, CX_IDS, CX_RANK, cxChoose, cxDeckTune, cxReveal, cxClose, cxSpend, cxSpendInfo, cxFree, cxOn, cxDefs, cxUsable, cxName, cxCanAct, validateDeck, autoDeck, comboDeck, learnOn, TEAM_DECKS, AFF, COMBOS, FEAT, NEWC, SYNC_OF, COMPAT, CARDREQ, cardReq, reqMatch, compatLevel, COMPAT_FX, ce, SLOTS, TWEAK, BAL, setTweaks, BOTX, CORE, CORES, coreN, chooseCore, CARDDOTS, cardDots, dotOverlap, compatDrop, compatInfo, EXPS, STORY_ORDER, setExp, expOn, resetExps, poolFor, randomTeam, META, cardScore, usable, botMulligan, botAct, mulberry32, shuffle, who, alive };
+  CX, CXD, CX_IDS, CX_RANK, cxChoose, cxDeckTune, cxReveal, cxClose, cxSpend, cxSpendInfo, cxFree, cxFreeP, setNames, cxOn, cxDefs, cxUsable, cxName, cxCanAct, validateDeck, autoDeck, comboDeck, learnOn, TEAM_DECKS, AFF, COMBOS, FEAT, NEWC, SYNC_OF, COMPAT, CARDREQ, cardReq, reqMatch, compatLevel, COMPAT_FX, ce, SLOTS, TWEAK, BAL, setTweaks, BOTX, CORE, CORES, coreN, chooseCore, CARDDOTS, cardDots, dotOverlap, compatDrop, compatInfo, EXPS, STORY_ORDER, setExp, expOn, resetExps, poolFor, randomTeam, META, cardScore, usable, botMulligan, botAct, mulberry32, shuffle, who, alive };
 if (typeof module !== 'undefined' && module.exports) module.exports = AE; else root.AE = AE;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -2199,6 +2219,8 @@ const KWTIP = { Output: 'Output: ค่าโจมตี ดาเมจที�
 const kwTip = m => KWTIP[m] || KWTIP[m.toLowerCase()] || KWTIP[m.split(' ')[0]] || '';
 function colorize(h) { return h.split(/(<[^>]*>)/).map(seg => seg.charAt(0) === '<' ? seg : seg.replace(KWRE, m => '<span class="' + kwCls(m) + '"' + (kwTip(m) ? ' title="' + kwTip(m) + '"' : '') + '>' + m + '</span>')).join(''); }
 function kw(t) { return colorize(cgTags(esc(t))); }
+let ME = 0; /* ที่นั่งของเรา: 0 เสมอ ยกเว้นเพื่อนในโหมดสองคนที่เป็นที่นั่ง 1 */
+const oppLabel = () => (S.pv ? S.pv.oppName : 'บอท');
 const S = { team: [], deck: {}, fac: 'all', typ: 'all', g: null, busy: false, drag: null, suppress: false, botFac: null, cxOn: true };
 const KEY = 'aetherpunk-tcg-v2';
 function save() { try { localStorage.setItem(KEY, JSON.stringify({ team: S.team, deck: S.deck, core: S.core, cxd: 3, cx: S.cx || [] })); } catch (e) { /* ignore */ } }
@@ -2286,7 +2308,7 @@ function renderReplay() {
 function rpGo(i) { const rp = S.rp; if (!rp) return; rp.i = Math.max(0, Math.min(rp.d.sn.length - 1, i)); if (rp.i === rp.d.sn.length - 1) rp.auto = 0; renderReplay(); }
 function rpAuto() { const rp = S.rp; if (!rp) return; if (rp.auto) { rp.auto = 0; renderReplay(); return; } if (rp.i >= rp.d.sn.length - 1) rp.i = 0; rp.auto = 1; renderReplay(); const tick = () => { if (!S.rp || !S.rp.auto) return; if (S.rp.i >= S.rp.d.sn.length - 1) { S.rp.auto = 0; renderReplay(); return; } rpGo(S.rp.i + 1); if (S.rp && S.rp.auto) setTimeout(tick, 1400); }; setTimeout(tick, 1400); }
 
-const BUILD = 'Playtest 0.1 · 2026-11-24';
+const BUILD = 'Playtest 0.3 · 2026-11-25';
 async function openFeedback() {
   let rep = ''; try { const d = replayData(); if (d) rep = await encodeReplay(d); } catch (e) { /* ignore */ }
   let dk = ''; try { if (S.team && S.team.length === 4) dk = deckCode(); } catch (e) { /* ignore */ }
@@ -2326,7 +2348,7 @@ function circGridHTML(line, prev, hints, big) {
   }
   return h + '</div></div>';
 }
-function circChainList(line) { return line.length ? '<div class="clist">' + line.map((e, i) => { const c = A.CARDS[e.id]; return '<div class="crow"><b>' + (i + 1) + '</b>' + circMiniCard(c) + '<div><span class="own' + e.owner + '">' + (e.owner === 0 ? 'คุณ' : 'บอท') + '</span> · <b>' + esc(c.name) + '</b><div class="ctx">' + kw(c.text) + '</div></div></div>'; }).join('') + '</div>' : '<p class="hint">ยังไม่มี Circuit บนโซน — ใบแรกต้องมีช่องที่ START (ช่องซ้ายสุดกลาง ขอบทองหนา)</p>'; }
+function circChainList(line) { return line.length ? '<div class="clist">' + line.map((e, i) => { const c = A.CARDS[e.id]; return '<div class="crow"><b>' + (i + 1) + '</b>' + circMiniCard(c) + '<div><span class="own' + e.owner + '">' + (e.owner === ME ? 'คุณ' : oppLabel()) + '</span> · <b>' + esc(c.name) + '</b><div class="ctx">' + kw(c.text) + '</div></div></div>'; }).join('') + '</div>' : '<p class="hint">ยังไม่มี Circuit บนโซน — ใบแรกต้องมีช่องที่ START (ช่องซ้ายสุดกลาง ขอบทองหนา)</p>'; }
 function cardHTML(cid, o) {
   o = o || {}; const c = A.CARDS[cid], f = FAC[c.fac];
   let stats = '';
@@ -2367,11 +2389,11 @@ function ovStrip(cid) { if (S.mode !== 'exp' || !A.COMPAT.on) return ''; const c
 function wchip(p, wi) {
   const g = S.g, w = g.p[p].weavers[wi], d = A.WEAVERS[w.id], f = FAC[d.fac], on = g.p[p].stage === wi, cat = w.cd > 0;
   const out = A.outOf(g, p, wi), max = A.maxStab(w), baseMax = (w.mod ? w.mod.stab : d.stab);
-  const cand = g.pend && g.pend.p === 0 && g.pend.kind === 'target' && g.pend.cands.some(c => c.p === p && c.wi === wi);
+  const cand = g.pend && g.pend.p === ME && g.pend.kind === 'target' && g.pend.cands.some(c => c.p === p && c.wi === wi);
   const badges = (w.emerg ? '<span class="st-u">EM</span>' : '') + (w.rust ? '<span>Rusty ' + w.rust + '</span>' : '') + (w.mod ? '<span>' + esc(w.mod.name.slice(0, 10)) + '</span>' : '') + (w.sync ? '<span class="st-o">SYNC</span>' : '') + (w.ward ? '<span class="st-u">Ward</span>' : '') + (w.mark ? '<span class="st-o">Mark</span>' : '') + (w.jam ? '<span class="st-o">Jam</span>' : '') + (w.burn ? '<span class="st-o">Burn ' + w.burn + '</span>' : '') + (w.tune ? '<span class="st-u">Tune</span>' : '');
   let shards = ''; if (cat) { shards = '<div class="shards">' + '<i></i>'.repeat(w.cd) + '</div>'; }
   return '<div class="wchip' + (on ? ' onstage' : '') + (cat ? ' cat' : '') + (cand ? ' cand' : '') + '" style="--fc:' + f.color + ';--fi:' + f.ink + '" data-wp="' + p + '" data-wi="' + wi + '" data-w="' + p + '-' + wi + '"' +
-    (p === 0 && !cat ? ' data-drag="weaver" data-drop="weaver"' : (p === 0 ? ' data-drop="weaver"' : '')) + ' tabindex="0">' +
+    (p === ME && !cat ? ' data-drag="weaver" data-drop="weaver"' : (p === ME ? ' data-drop="weaver"' : '')) + ' tabindex="0">' +
     '<div class="wn">' + esc(d.name) + '</div>' +
     '<div class="ws"><span class="st-o" ' + numClass(out, A.baseOut(w)) + '>' + ic('out') + out + '</span><span class="st-s" ' + numClass(max, baseMax) + '>' + ic('stab') + (cat ? 0 : w.stab) + '/' + max + '</span>' + (w.supp ? '<span class="st-u">' + ic('supp') + w.supp + '</span>' : '') + '</div>' +
     '<div class="wm">' + (w.mod ? esc(w.mod.name) : esc(d.text.slice(0, 26))) + '</div><div class="wb">' + badges + '</div>' + slotDots(w.id) + shards + '</div>';
@@ -2380,9 +2402,9 @@ function stageHTML(p) {
   const g = S.g, pl = g.p[p], wi = pl.stage;
   if (wi === null || wi === undefined) return '<div class="stage empty" data-stage="' + p + '">Stage ว่าง</div>';
   const w = pl.weavers[wi], d = A.WEAVERS[w.id], f = FAC[d.fac], out = A.outOf(g, p, wi), max = A.maxStab(w), baseMax = (w.mod ? w.mod.stab : d.stab);
-  const cand = g.pend && g.pend.p === 0 && g.pend.kind === 'target' && g.pend.cands.some(c => c.p === p && c.wi === wi);
+  const cand = g.pend && g.pend.p === ME && g.pend.kind === 'target' && g.pend.cands.some(c => c.p === p && c.wi === wi);
   const bonus = []; if (w.perm) bonus.push((w.perm > 0 ? '+' : '') + w.perm + ' Out'); if (w.pstab) bonus.push('+' + w.pstab + ' Stab'); if (w.noPassive) bonus.push('ปิด passive'); if (w.emerg) bonus.push('Emergence'); if (w.rust) bonus.push('Rusty ' + w.rust);
-  return '<div class="stage has' + (cand ? ' cand' : '') + '" style="--fc:' + f.color + ';--fi:' + f.ink + '" data-wp="' + p + '" data-wi="' + wi + '" data-ws="' + p + '-' + wi + '"' + (p === 0 ? ' data-drag="weaver" data-drop="weaver"' : '') + ' tabindex="0">' +
+  return '<div class="stage has' + (cand ? ' cand' : '') + '" style="--fc:' + f.color + ';--fi:' + f.ink + '" data-wp="' + p + '" data-wi="' + wi + '" data-ws="' + p + '-' + wi + '"' + (p === ME ? ' data-drag="weaver" data-drop="weaver"' : '') + ' tabindex="0">' +
     mono(w.id) + '<div style="min-width:0"><div class="sn">' + esc(d.name) + '<small>' + esc(f.name) + '</small></div><div class="sm">' + (w.mod ? esc(w.mod.name) : 'ไม่มี Module') + '</div>' +
     '<div class="sp">' + esc(d.text) + '</div>' + slotDots(w.id) + '<div class="sb">' + bonus.map(b => '<span>' + esc(b) + '</span>').join('') + '</div></div>' +
     '<div class="big"><span class="st-o" ' + numClass(out, A.baseOut(w)) + '>' + ic('out') + out + '</span><span class="st-s" ' + numClass(max, baseMax) + '>' + ic('stab') + w.stab + '</span>' + (w.supp ? '<span class="st-u">' + ic('supp') + w.supp + '</span>' : '') + '</div></div>';
@@ -2394,7 +2416,7 @@ function bpRow(p) {
 }
 function barHTML(p, compact) {
   const g = S.g, pl = g.p[p]; const gauge = Array.from({ length: A.PRESS_MAX }, (_, i) => '<i class="' + (i < pl.pressure ? 'on' : '') + '"></i>').join('');
-  return '<div class="bar" data-life="' + p + '"><div class="life"><div class="ln"><span>' + ic('stab') + ' ' + (p === 0 ? 'คุณ' : 'บอท') + '</span><b>' + Math.max(0, pl.life) + '/' + A.LIFE + '</b>' + (pl.supp ? ' <span class="st-u">' + ic('supp') + pl.supp + '</span>' : '') + (pl.barrier ? ' <span class="bchip">⬡ Barrier</span>' : '') + (A.CORE.on && pl.core && A.CORES[pl.core] ? ' <span class="cchip" title="' + esc(A.CORES[pl.core].desc) + '">◈ ' + esc(A.CORES[pl.core].name.replace(' (ทั่วไป)', '')) + '</span>' : '') + '</div><div class="lb"><i style="width:' + Math.max(0, pl.life / A.LIFE * 100) + '%"></i></div></div>' +
+  return '<div class="bar" data-life="' + p + '"><div class="life"><div class="ln"><span>' + ic('stab') + ' ' + (p === ME ? 'คุณ' : oppLabel()) + '</span><b>' + Math.max(0, pl.life) + '/' + A.LIFE + '</b>' + (pl.supp ? ' <span class="st-u">' + ic('supp') + pl.supp + '</span>' : '') + (pl.barrier ? ' <span class="bchip">⬡ Barrier</span>' : '') + (A.CORE.on && pl.core && A.CORES[pl.core] ? ' <span class="cchip" title="' + esc(A.CORES[pl.core].desc) + '">◈ ' + esc(A.CORES[pl.core].name.replace(' (ทั่วไป)', '')) + '</span>' : '') + '</div><div class="lb"><i style="width:' + Math.max(0, pl.life / A.LIFE * 100) + '%"></i></div></div>' +
     '<div class="res"><span class="pip" title="Aether">' + pips(pl.aether, A.AETHER_MAX) + '</span><span class="pip tok" title="Drive token">' + pips(pl.tokens, A.TOKEN_CAP) + '</span><span class="cnt" title="Condense Aether (ใช้แทน Aether และถูกใช้ก่อนเสมอ)">' + ic('cond') + '<b>' + pl.condense + '</b></span><span class="gauge" title="Pressure ' + pl.pressure + '">' + gauge + '</span>' + (pl.pressure < A.PRESS_MAX ? '<span class="pg" title="Pressure gauge ' + (pl.pgauge || 0) + '/' + A.pressPer() + ' (+1 ต่อเทิร์น · Extraction +1)">' + Array.from({ length: A.pressPer() }, (_, i) => '<i class="' + (i < (pl.pgauge || 0) ? 'on' : '') + '"></i>').join('') + '</span>' : '') + '</div>' +
     (compact ? '' : '<span class="cnt" title="มือ / Deck / Smelter">' + ic('hand') + '<b>' + pl.hand.length + '</b> ' + ic('deck') + '<b>' + pl.deck.length + '</b></span> <button class="smbtn" data-smelt="' + p + '" title="ดูการ์ดใน Smelter">Smelter <b>' + pl.smelter.length + '</b></button>') + '</div>';
 }
@@ -2414,8 +2436,8 @@ function wsRow(p) {
   return h;
 }
 function stageZone(p) { return '<div class="zst stagebox" data-drop="field"><div class="zlab">Stage</div>' + stageHTML(p) + '</div>'; }
-function canActNow() { const g = S.g; return !!g && !S.busy && g.phase === 'main' && g.cur === 0 && !g.pend; }
-function anyPlay(hi) { for (let wi = 0; wi < 4; wi++) if (A.canPlay(S.g, 0, hi, wi).ok) return true; return false; }
+function canActNow() { const g = S.g; return !!g && !S.busy && g.phase === 'main' && g.cur === ME && !g.pend; }
+function anyPlay(hi) { for (let wi = 0; wi < 4; wi++) if (A.canPlay(S.g, ME, hi, wi).ok) return true; return false; }
 
 
 /* ---- Core-Mechanism v2 UI ---- */
@@ -2439,26 +2461,26 @@ function cxCardHTML(df, o) {
 function cxFan(p) {
   const g = S.g; if (!g || !g.p[p].cx || !g.p[p].cx.list.length) return '<span></span>';
   return '<div class="cxfan p' + p + '">' + g.p[p].cx.list.map((k, ki) => {
-    const known = p === 0 || k.up;
+    const known = p === ME || k.up;
     if (!k.up) return '<button class="cxc dn" data-core="' + p + ':' + ki + '">' + cxCardHTML(known ? A.CXD[k.id] : { name: 'Core', steps: [], main: [] }, { mini: true, dn: true, known }) + '</button>';
     const d2 = A.cxDefs(g, p, k)[0], us = A.cxUsable(g, p, d2), nx = d2.steps.find((x, i) => i < us && x.at > k.ch);
     return '<button class="cxc up" data-core="' + p + ':' + ki + '">' + cxCardHTML(A.CXD[k.id], { mini: true, ch: k.ch, nx: nx ? '→ ' + nx.at : (us > 0 ? 'MAX' : '') }) + '</button>';
   }).join('') + '</div>';
 }
 function cxHandCards() {
-  const g = S.g; if (!g || !g.p[0].cx || !g.p[0].cx.list.length) return '';
-  return g.p[0].cx.list.map((k, ki) => {
+  const g = S.g; if (!g || !g.p[ME].cx || !g.p[ME].cx.list.length) return '';
+  return g.p[ME].cx.list.map((k, ki) => {
     const df = A.CXD[k.id];
     if (!k.up) return '<div class="hcard cxhc" data-core="0:' + ki + '" tabindex="0">' + cxCardHTML(df, { dn: true, foot: 'คว่ำ · แตะเพื่อหงาย' }) + '</div>';
-    const d2 = A.cxDefs(g, 0, k)[0], us = A.cxUsable(g, 0, d2), nx = d2.steps.find((x, i) => i < us && x.at > k.ch);
+    const d2 = A.cxDefs(g, ME, k)[0], us = A.cxUsable(g, ME, d2), nx = d2.steps.find((x, i) => i < us && x.at > k.ch);
     return '<div class="hcard cxhc" data-core="0:' + ki + '" tabindex="0">' + cxCardHTML(df, { ch: k.ch, foot: nx ? 'ถัดไป ' + nx.at : (us > 0 ? 'MAX' : '') }) + '</div>';
   }).join('') + '<div class="cxsep"></div>';
 }
 function cxRow(p) {
   const g = S.g; if (!g || !g.p[p].cx) return '';
   const cx = g.p[p].cx;
-  return '<div class="cxstack ' + (p === 0 ? 'me' : 'op') + '">' + cx.list.map((k, ki) => {
-    const known = p === 0 || k.up; const nm = known ? A.cxName(k) : 'Core';
+  return '<div class="cxstack ' + (p === ME ? 'me' : 'op') + '">' + cx.list.map((k, ki) => {
+    const known = p === ME || k.up; const nm = known ? A.cxName(k) : 'Core';
     if (!k.up) return '<button class="cxc dn" data-core="' + p + ':' + ki + '">' + cxCardHTML(known ? A.CXD[k.id] : { name: 'Core', steps: [], main: [] }, { mini: true, dn: true, known }) + '</button>';
     const df = A.cxDefs(g, p, k)[0], us = A.cxUsable(g, p, df); const nx = df.steps.find((x, i) => i < us && x.at > k.ch);
     return '<button class="cxc up" data-core="' + p + ':' + ki + '">' + cxCardHTML(A.CXD[k.id], { mini: true, ch: k.ch, nx: nx ? '→ ' + nx.at : (us > 0 ? 'MAX' : '') }) + '</button>';
@@ -2467,16 +2489,16 @@ function cxRow(p) {
 function openCoreP(p, ki, refresh) {
   const g = S.g; if (!g || !g.p[p].cx) return; const k = g.p[p].cx.list[ki]; if (!k) { ov('#ov-cxp', false); return; }
   S.cxp = { p, ki }; S.cxPickMode = false;
-  if (p === 1 && !k.up) { $('#cxp-title').textContent = 'Core ของบอท'; $('#cxp-body').innerHTML = '<p class="hint">คว่ำอยู่ ยังไม่ทราบว่าเป็นใบไหน</p>'; ov('#ov-cxp', true); return; }
+  if (p === 1 - ME && !k.up) { $('#cxp-title').textContent = 'Core ของ' + oppLabel(); $('#cxp-body').innerHTML = '<p class="hint">คว่ำอยู่ ยังไม่ทราบว่าเป็นใบไหน</p>'; ov('#ov-cxp', true); return; }
   const dfs = A.cxDefs(g, p, k);
   let h = '<div class="cxcard1">' + cxCardHTML(A.CXD[k.id], { cw: 'min(250px,62vw)', ch: k.up ? k.ch : null, dn: !k.up }) + '</div><div class="cxhd"><span class="cxbig">' + (k.up ? 'หงาย · Charge <b>' + k.ch + '</b>' : 'คว่ำ') + '</span></div>';
   dfs.forEach((df, di) => { h += (di ? '<div class="lab" style="margin-top:8px">คัดลอกจาก ' + esc(df.name) + '</div>' : '') + cxDefHTML(df, { g, p, k }); });
-  const my = p === 0 && A.cxCanAct(g, 0) && !S.busy;
-  if (p === 0) {
+  const my = p === ME && A.cxCanAct(g, ME) && !S.busy;
+  if (p === ME) {
     h += '<div class="cxact">';
-    if (!k.up) h += '<button class="btn" data-cxa="reveal" data-ki="' + ki + '"' + (my && (g.p[0].aether + g.p[0].condense) >= 1 ? '' : ' disabled') + '>จ่าย 1 Aether เพื่อหงาย (Reveal ทำงาน)</button>';
+    if (!k.up) h += '<button class="btn" data-cxa="reveal" data-ki="' + ki + '"' + (my && (g.p[ME].aether + g.p[ME].condense) >= 1 ? '' : ' disabled') + '>จ่าย 1 Aether เพื่อหงาย (Reveal ทำงาน)</button>';
     else {
-      A.cxSpendInfo(g, 0, k).forEach(inf => {
+      A.cxSpendInfo(g, ME, k).forEach(inf => {
         if (inf.s.x) { h += '<div class="cxx"><span>Spend X: ' + esc(inf.s.t) + '</span>' + [1, 2, 3, 4, 5, 6, 8].filter(x => x <= k.ch).map(x => '<button class="btn ghost sm" data-cxa="spend" data-ki="' + ki + '" data-di="' + inf.di + '" data-si="' + inf.si + '" data-x="' + x + '"' + (my && inf.ok ? '' : ' disabled') + '>' + x + '</button>').join('') + '</div>'; }
         else h += '<button class="btn" data-cxa="spend" data-ki="' + ki + '" data-di="' + inf.di + '" data-si="' + inf.si + '"' + (my && inf.ok ? '' : ' disabled') + '>Spend ' + inf.cost + ': ' + esc(inf.s.t) + '</button>';
       });
@@ -2489,14 +2511,14 @@ function openCoreP(p, ki, refresh) {
 function openCoreInfo(id) { const df = A.CXD[id]; S.cxp = null; $('#cxp-title').textContent = '◈ ' + df.name; $('#cxp-body').innerHTML = '<div class="cxcard1">' + cxCardHTML(df, { cw: 'min(250px,62vw)' }) + '</div>' + cxDefHTML(df, null) + '<p class="hint">ตัวเลขหน้า step คือ Charge ที่ต้องถึงก่อนความสามารถทำงาน</p>' + (S.cxPickMode ? '<button class="btn" data-cxback>← กลับไปเลือก Core</button>' : ''); ov('#ov-cxp', true); }
 function cxAct(el) {
   const g = S.g; if (!g || S.busy) return; const a = el.dataset.cxa, ki = +el.dataset.ki; if (S.tut && tutBlock('core', { a })) return; let r = { ok: false };
-  if (a === 'reveal') r = A.cxReveal(g, 0, ki, false); else if (a === 'close') r = A.cxClose(g, 0, ki); else if (a === 'spend') r = A.cxSpend(g, 0, ki, +el.dataset.di, +el.dataset.si, el.dataset.x ? +el.dataset.x : undefined);
+  if (a === 'reveal') r = A.cxReveal(g, ME, ki, false); else if (a === 'close') r = A.cxClose(g, ME, ki); else if (a === 'spend') r = A.cxSpend(g, ME, ki, +el.dataset.di, +el.dataset.si, el.dataset.x ? +el.dataset.x : undefined);
   if (r && !r.ok && r.why) toast(r.why);
   ov('#ov-cxp', false); S.cxp = null; afterAction();
 }
 function openCxFree() {
-  const g = S.g; const cx = g.p[0].cx; if (!cx) return;
+  const g = S.g; const cx = g.p[ME].cx; if (!cx) return;
   $('#cxf-body').innerHTML = '<p class="hint">หงาย Core 1 ใบตอนเริ่มเกมได้ฟรี แต่ Reveal จะไม่ทำงาน (หรือเลือกไม่หงาย แล้วจ่าย 1 Aether หงายทีหลังเพื่อให้ Reveal ทำงาน)</p>' +
-    cx.list.map((k, ki) => '<div class="cxfi"><button class="btn" data-cxfree="' + ki + '">หงาย ' + esc(A.cxName(k)) + '</button><div class="cxfd">' + cxDefHTML(A.CXD[k.id], { g, p: 0, k }) + '</div></div>').join('') + '<button class="btn ghost" data-cxfree="none" style="margin-top:8px">ไม่หงาย</button>';
+    cx.list.map((k, ki) => '<div class="cxfi"><button class="btn" data-cxfree="' + ki + '">หงาย ' + esc(A.cxName(k)) + '</button><div class="cxfd">' + cxDefHTML(A.CXD[k.id], { g, p: ME, k }) + '</div></div>').join('') + '<button class="btn ghost" data-cxfree="none" style="margin-top:8px">ไม่หงาย</button>';
   ov('#ov-cxfree', true);
 }
 function cxBox() {
@@ -2513,28 +2535,29 @@ function openCxPick() {
 function renderGame() {
   const g = S.g; if (!g) return; try { recTick(); } catch (e) { /* ignore */ }
   const hs = $('.hand'); const sl = hs ? hs.scrollLeft : 0;
-  const my = g.cur === 0 && g.phase === 'main';
-  const hand = g.p[0].hand.map((cid, i) => '<div class="hcard' + (canActNow() && anyPlay(i) ? '' : ' dim') + '" data-drag="card" data-i="' + i + '" tabindex="0">' + cardHTML(cid) + '</div>').join('') || '<div class="empty">ไม่มีการ์ดในมือ</div>';
+  const my = g.cur === ME && g.phase === 'main';
+  const hand = g.p[ME].hand.map((cid, i) => '<div class="hcard' + (canActNow() && anyPlay(i) ? '' : ' dim') + '" data-drag="card" data-i="' + i + '" tabindex="0">' + cardHTML(cid) + '</div>').join('') || '<div class="empty">ไม่มีการ์ดในมือ</div>';
   const circBand = (A.CIRC.on ? '<div class="circ on" id="circ-mini" title="แตะเพื่อดู Circuit">' + circGridHTML(g.circ || []) + '<small>CIRCUIT ' + (g.circ || []).length + '/' + A.CIRC.MAX + '</small></div>' : '<div class="circ">CIRCUIT · ยังไม่รองรับ</div>');
   $('#board').innerHTML = '<div class="mat">' +
-    '<div class="a-bpo zbp">' + bpCol(1) + '</div><div class="a-ulo zul">' + barHTML(1, true) + '</div><div class="a-smo">' + smeltCell(1) + '</div>' +
-    '<div class="a-wso zws">' + wsRow(1) + '</div><div class="a-dko">' + deckCell(1) + '</div>' +
-    '<div class="a-sto stcx"><div class="stcx-c">' + cxRow(1) + '</div><div class="stcx-s">' + stageZone(1) + '</div></div>' +
+    '<div class="a-bpo zbp">' + bpCol(1 - ME) + '</div><div class="a-ulo zul">' + barHTML(1 - ME, true) + '</div><div class="a-smo">' + smeltCell(1 - ME) + '</div>' +
+    '<div class="a-wso zws">' + wsRow(1 - ME) + '</div><div class="a-dko">' + deckCell(1 - ME) + '</div>' +
+    '<div class="a-sto stcx"><div class="stcx-c">' + cxRow(1 - ME) + '</div><div class="stcx-s">' + stageZone(1 - ME) + '</div></div>' +
     '<div class="a-cz fbot">' + circBand + '<div class="cbtns"><button class="btn ghost sm" id="b-log">บันทึก</button><button class="btn ghost sm" id="b-rules">กติกา</button><button class="btn ghost sm" id="b-exit">ออก</button></div>' +
-    '<button class="endbtn' + (my && !g.pend ? ' go' : '') + '" id="b-end"' + (canActNow() || g.phase === 'over' ? '' : ' disabled') + '>' + (g.phase === 'over' ? 'ผลเกม' : 'จบเทิร์น') + '<small>' + (g.phase === 'over' ? 'แตะดูผล' : (g.cur === 0 ? 'เทิร์น ' + g.p[0].turnN : 'บอทเล่น')) + '</small></button></div>' +
-    '<div class="a-bpm zbp">' + bpCol(0) + '</div><div class="a-stm stcx"><div class="stcx-s">' + stageZone(0) + '</div><div class="stcx-c">' + cxRow(0) + '</div></div><div class="a-dkm">' + deckCell(0) + '</div>' +
-    '<div class="a-wsm zws">' + wsRow(0) + '</div><div class="a-smm">' + smeltCell(0) + '</div>' +
-    '<div class="a-ulm zul">' + barHTML(0, true) + '</div>' +
+    '<button class="endbtn' + (my && !g.pend ? ' go' : '') + '" id="b-end"' + (canActNow() || g.phase === 'over' ? '' : ' disabled') + '>' + (g.phase === 'over' ? 'ผลเกม' : 'จบเทิร์น') + '<small>' + (g.phase === 'over' ? 'แตะดูผล' : (g.cur === ME ? 'เทิร์น ' + g.p[ME].turnN : 'บอทเล่น')) + '</small></button></div>' +
+    '<div class="a-bpm zbp">' + bpCol(ME) + '</div><div class="a-stm stcx"><div class="stcx-s">' + stageZone(ME) + '</div><div class="stcx-c">' + cxRow(ME) + '</div></div><div class="a-dkm">' + deckCell(ME) + '</div>' +
+    '<div class="a-wsm zws">' + wsRow(ME) + '</div><div class="a-smm">' + smeltCell(ME) + '</div>' +
+    '<div class="a-ulm zul">' + barHTML(ME, true) + '</div>' +
     '</div>' + '<div class="hand">' + hand + '</div>';
   const nh = $('.hand'); if (nh) nh.scrollLeft = sl;
-  const pb = $('#pendbar'); const pd = g.pend && g.pend.p === 0 ? g.pend : null;
-  pb.classList.toggle('on', !!pd && (pd.kind === 'target' || (pd.kind === 'yn' && pd.p === 0))); if (pd && pd.kind === 'yn' && pd.p === 0) pb.innerHTML = esc(pd.title) + ' <button class="btn" id="b-yes" style="margin-left:8px;padding:2px 12px">' + esc(pd.yes || 'ใช้ซ้ำ') + '</button> <button class="btn ghost" id="b-no" style="padding:2px 12px">' + esc(pd.no || 'พอแล้ว') + '</button>'; else if (pd && pd.kind === 'target') pb.innerHTML = esc(pd.title) + ' — แตะ Weaver ที่ไฮไลต์' + (pd.optional ? ' <button class="btn" id="b-skip" style="margin-left:8px;padding:2px 10px">ปกติ</button>' : '');
+  const pb = $('#pendbar'); const pd = g.pend && g.pend.p === ME ? g.pend : null;
+  pb.classList.toggle('on', !!pd && (pd.kind === 'target' || (pd.kind === 'yn' && pd.p === ME))); if (pd && pd.kind === 'yn' && pd.p === ME) pb.innerHTML = esc(pd.title) + ' <button class="btn" id="b-yes" style="margin-left:8px;padding:2px 12px">' + esc(pd.yes || 'ใช้ซ้ำ') + '</button> <button class="btn ghost" id="b-no" style="padding:2px 12px">' + esc(pd.no || 'พอแล้ว') + '</button>'; else if (pd && pd.kind === 'target') pb.innerHTML = esc(pd.title) + ' — แตะ Weaver ที่ไฮไลต์' + (pd.optional ? ' <button class="btn" id="b-skip" style="margin-left:8px;padding:2px 10px">ปกติ</button>' : '');
   if (pd && pd.kind === 'cards') openPick(pd); else if (!pd) ov('#ov-pick', false);
-  if (pd && pd.kind === 'cxfree') openCxFree(); else ov('#ov-cxfree', false);
+  if ((pd && pd.kind === 'cxfree') || pvFreeNeeded(g)) openCxFree(); else ov('#ov-cxfree', false);
   if (S.cxp && $('#ov-cxp').classList.contains('on')) openCoreP(S.cxp.p, S.cxp.ki, true);
   if (pd && pd.kind === 'circ') openCirc(pd); else if (!$('#ov-circ').dataset.view) ov('#ov-circ', false);
   runFx();
   if (S.tut) tutRefresh();
+  pvStatus();
 }
 function circSel() { return S.cs; }
 function openCirc(pd, view) {
@@ -2570,7 +2593,7 @@ function runFx() {
     else if (f.wi !== undefined) el = document.querySelector('[data-ws="' + f.p + '-' + f.wi + '"]') || document.querySelector('[data-w="' + f.p + '-' + f.wi + '"]');
     if (!el || !f.n) continue;
     const pop = document.createElement('span'); pop.className = 'pop ' + (f.k === 'dmg' ? 'd' : f.k === 'heal' ? 'h' : 'a');
-    if (f.k === 'barrier') { toast((f.p === 0 ? 'Barrier ของคุณ' : 'Barrier ของบอท') + ' กัน Output แล้วหายไป'); }
+    if (f.k === 'barrier') { toast((f.p === ME ? 'Barrier ของคุณ' : 'Barrier ของ' + oppLabel()) + ' กัน Output แล้วหายไป'); }
     pop.textContent = f.k === 'dmg' ? '-' + f.n : f.k === 'heal' ? '+' + f.n : f.k === 'barrier' ? 'Barrier!' : '🛡' + f.n;
     if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
     el.appendChild(pop); setTimeout(() => pop.remove(), 1000);
@@ -2596,8 +2619,8 @@ function cardExtra(c, g) {
   if (c.type === 'mech') h += '<p class="hint">Mechanism: ทำตามข้อความแล้วลง Smelter และนับเป็น Mechanism สำหรับ On/When Mechanism</p>';
   if (c.type === 'module') h += '<p class="hint">Module: ติดกับ Weaver 1 ตัว (ใบใหม่แทนที่ใบเดิม) ให้ค่า Output/Stability บนการ์ดแทนค่าพื้นฐาน</p>';
   if (g && g.p) {
-    const pl = g.p[0], inHand = pl.hand.filter(x => x === c.id).length, inSm = pl.smelter.filter(x => x === c.id).length, inSmE = g.p[1].smelter.filter(x => x === c.id).length, inBp = pl.bp.filter(b => b.card.id === c.id).length;
-    h += '<p class="hint">ตอนนี้ · ในมือคุณ ' + inHand + ' · Smelter คุณ ' + inSm + (inSmE ? ' · Smelter บอท ' + inSmE : '') + (inBp ? ' · บนโต๊ะ ' + inBp : '') + ' · ใส่ซ้ำได้สูงสุด ' + A.COPY_MAX + ' ใบต่อ Deck</p>';
+    const pl = g.p[ME], inHand = pl.hand.filter(x => x === c.id).length, inSm = pl.smelter.filter(x => x === c.id).length, inSmE = g.p[1 - ME].smelter.filter(x => x === c.id).length, inBp = pl.bp.filter(b => b.card.id === c.id).length;
+    h += '<p class="hint">ตอนนี้ · ในมือคุณ ' + inHand + ' · Smelter คุณ ' + inSm + (inSmE ? ' · Smelter ' + oppLabel() + ' ' + inSmE : '') + (inBp ? ' · บนโต๊ะ ' + inBp : '') + ' · ใส่ซ้ำได้สูงสุด ' + A.COPY_MAX + ' ใบต่อ Deck</p>';
   }
   return h;
 }
@@ -2610,10 +2633,10 @@ function openCard(cid, hi) {
   if (c.note) info += '<p class="hint">' + esc(c.note) + '</p>';
   info += cardExtra(c, g);
   let plays = '';
-  if (hi !== undefined && g && g.cur === 0 && g.phase === 'main' && !S.busy && !g.pend) {
+  if (hi !== undefined && g && g.cur === ME && g.phase === 'main' && !S.busy && !g.pend) {
     plays = '<div class="lab" style="margin-top:12px">เล่นผ่าน Weaver</div><div class="plays">';
     for (let wi = 0; wi < 4; wi++) {
-      const w = g.p[0].weavers[wi], d = A.WEAVERS[w.id], r = A.canPlay(g, 0, hi, wi); const off = c.type === 'module' && c.bound && c.bound !== w.id;
+      const w = g.p[ME].weavers[wi], d = A.WEAVERS[w.id], r = A.canPlay(g, ME, hi, wi); const off = c.type === 'module' && c.bound && c.bound !== w.id;
       plays += '<button class="btn" data-playhi="' + hi + '" data-playwi="' + wi + '"' + (r.ok ? '' : ' disabled') + '><span>' + esc(d.name) + '</span><small>' + (r.ok ? (c.type === 'blast' ? 'Drive + Blast' : 'เล่น') + compatNote(d.id, cid) : esc(r.why)) + '</small></button>';
     }
     plays += '</div>';
@@ -2623,7 +2646,7 @@ function openCard(cid, hi) {
 }
 
 function weaverExtra(g, p, wi, w, d) {
-  let h = '<p class="hint">' + (p === 0 ? 'ของคุณ' : 'ของบอท') + ' · ' + (g.p[p].stage === wi ? 'อยู่บน Stage' : (w.cd > 0 ? 'Catalyst (พัก)' : 'อยู่ใน Workshop')) + '</p>';
+  let h = '<p class="hint">' + (p === ME ? 'ของคุณ' : 'ของ' + oppLabel()) + ' · ' + (g.p[p].stage === wi ? 'อยู่บน Stage' : (w.cd > 0 ? 'Catalyst (พัก)' : 'อยู่ใน Workshop')) + '</p>';
   const sl = A.SLOTS[w.id]; if (sl) h += '<p><b>Compatibility slot</b> ' + slotDots(w.id) + ' <span class="hint">' + (w.tune || sl).map(f => esc(FAC[f].name)).join(' · ') + (w.tune ? ' (ปรับด้วย Tune)' : '') + '</span></p>';
   const sts = [];
   if (w.supp) sts.push('Suppressor ' + w.supp + ' (ลดความเสียหายที่โดน)');
@@ -2650,7 +2673,7 @@ function openWeaver(p, wi) {
   if (w.sync) h += '<p><b>Mechanism-Sync</b> · ' + esc(A.CARDS[w.sync].name) + '<br>' + kw(A.CARDS[w.sync].text) + '</p>';
   if (w.mod) h += '<p><b>Module</b> · ' + esc(w.mod.name) + '<br>' + kw(w.mod.text) + (A.modActive(w) ? '' : '<br><span class="hint">ความสามารถไม่ทำงานกับ Weaver นี้</span>') + '</p>';
   h += weaverExtra(g, p, wi, w, d);
-  if (p === 0 && canActNow() && w.cd === 0) { const r = A.canDrive(g, 0, wi); h += '<div class="plays"><button class="btn" data-drive="' + wi + '"' + (r.ok ? '' : ' disabled') + '><span>Drive</span><small>' + (r.ok ? '1 Drive token + 1 Aether' : esc(r.why)) + '</small></button></div>'; }
+  if (p === ME && canActNow() && w.cd === 0) { const r = A.canDrive(g, ME, wi); h += '<div class="plays"><button class="btn" data-drive="' + wi + '"' + (r.ok ? '' : ' disabled') + '><span>Drive</span><small>' + (r.ok ? '1 Drive token + 1 Aether' : esc(r.why)) + '</small></button></div>'; }
   $('#pv-body').innerHTML = h; $('#pv-title').textContent = d.name; ov('#ov-preview', true);
 }
 function openPick(pd) {
@@ -2663,7 +2686,7 @@ function openLog() {
   ov('#ov-log', true);
 }
 function openMull() {
-  const g = S.g, pl = g.p[0];
+  const g = S.g, pl = g.p[ME];
   if (!S.mullSel) S.mullSel = new Set();
   $('#mull-body').innerHTML = '<p class="lab">แตะการ์ดที่อยากเปลี่ยน (กี่ใบก็ได้) แล้วกดเริ่มเกม · การ์ดที่เลือกจะถูกสับกลับเข้า Deck แล้วจั่วใหม่เท่าจำนวนเดิม</p><div class="mull">' + pl.hand.map((c, i) => '<div data-mull="' + i + '" tabindex="0" style="' + (S.mullSel.has(i) ? 'outline:3px solid #ff7a62;outline-offset:2px;border-radius:8px;opacity:.75' : '') + '">' + cardHTML(c) + '</div>').join('') + '</div>';
   $('#mull-go').textContent = S.mullSel.size ? 'เปลี่ยน ' + S.mullSel.size + ' ใบ แล้วเริ่มเกม' : 'ไม่เปลี่ยน เริ่มเกม';
@@ -2800,12 +2823,13 @@ function pvpDeckState() {
 }
 function pvpClean(s) { return String(s || '').replace(/[^\p{L}\p{M}\p{N} _.-]/gu, '').slice(0, 14).trim(); }
 function pvpPresence() {
-  const d = pvpDeckState(), o = { n: PVP.name, host: PVP.host ? 1 : 0, rdy: PVP.ready && d.ok ? 1 : 0, ok: d.ok ? 1 : 0, tm: d.ok ? S.team.slice(0, 4) : [], cx: (S.cx || []).slice(0, 3) };
+  const d = pvpDeckState(), o = { n: PVP.name, host: PVP.host ? 1 : 0, rdy: PVP.ready && d.ok ? 1 : 0, ok: d.ok ? 1 : 0, tm: d.ok ? S.team.slice(0, 4) : [], cx: (S.cx || []).slice(0, 3), dk: d.ok ? deckList().join(',') : '' };
   if (NET.r) NET.r.presence(o);
 }
 function pvpRender(peers) {
-  if (!$('#s-pvp').classList.contains('on')) return;
   peers = peers || (NET.r ? NET.r.peers() : []);
+  if (S.pv) { pvPeerWatch(peers); return; }
+  if (!$('#s-pvp').classList.contains('on')) return;
   const inRoom = !!NET.r, d = pvpDeckState(); $('#pvp-mode').disabled = inRoom || !!PVP.busy;
   $('#pvp-start').style.display = inRoom ? 'none' : ''; $('#pvp-room').style.display = inRoom ? '' : 'none';
   if (!inRoom) { $('#pvp-deckst').innerHTML = d.ok ? '<span class="pvp-ok">✓ Deck ของคุณพร้อม</span>' : '<span class="pvp-no">⚠ ' + esc(d.why) + '</span>'; return; }
@@ -2820,7 +2844,109 @@ function pvpRender(peers) {
   $('#pvp-deckst').innerHTML = d.ok ? '<span class="pvp-ok">✓ Deck ของคุณพร้อม</span>' : '<span class="pvp-no">⚠ ' + esc(d.why) + '</span>';
   const b = $('#pvp-ready'); b.textContent = PVP.ready ? 'ยกเลิกพร้อม' : 'พร้อมเล่น'; b.disabled = !d.ok;
   $('#pvp-go').disabled = !(n === 2 && rd === 2 && PVP.host);
-  $('#pvp-hint').textContent = n < 2 ? 'รอเพื่อนเข้าห้อง: ส่งรหัสห้องให้เพื่อนแล้วให้กด "เข้าห้อง"' : n > 2 ? 'ห้องนี้มีมากกว่า 2 คน ต้องเหลือสองคน' : rd < 2 ? 'ทั้งสองฝ่ายต้องกด "พร้อมเล่น"' : PVP.host ? 'พร้อมแล้ว! การซิงก์เกมจะเปิดในอัปเดตถัดไป (ปุ่มเริ่มเกมยังไม่ทำงาน)' : 'รอเจ้าของห้องเริ่มเกม';
+  $('#pvp-hint').textContent = n < 2 ? 'รอเพื่อนเข้าห้อง: ส่งรหัสห้องให้เพื่อนแล้วให้กด "เข้าห้อง"' : n > 2 ? 'ห้องนี้มีมากกว่า 2 คน ต้องเหลือสองคน' : rd < 2 ? 'ทั้งสองฝ่ายต้องกด "พร้อมเล่น"' : PVP.host ? 'พร้อมแล้ว! กด "เริ่มเกม" ได้เลย' : 'รอเจ้าของห้องเริ่มเกม';
+}
+/* ---------- เล่นกับเพื่อน: เกมจริง (lockstep: ทั้งสองเครื่องรันเอนจินเดียวกันจาก seed เดียวกัน ส่งเฉพาะแอคชั่น) ---------- */
+const PV_OPS = ['play', 'drive', 'endTurn', 'mulligan', 'mulliganDone', 'trimDiscard', 'skipTarget', 'resolveYN', 'resolveTarget', 'resolveCirc', 'resolveCard', 'cxFreeP', 'cxReveal', 'cxSpend', 'cxClose'];
+function pvHash(g) { return [g.turn, g.cur, g.phase, g.p[0].life, g.p[1].life, g.p[0].hand.length, g.p[1].hand.length, g.p[0].deck.length, g.p[1].deck.length, g.log.length].join(':'); }
+function act(op, ...a) {
+  const r = A[op](S.g, ME, ...a);
+  if (S.pv && r !== false && r !== null && !(r && r.ok === false)) pvSend(op, a);
+  return r;
+}
+function pvSend(op, a) {
+  const pv = S.pv, m = { n: ++pv.n, op, a, h: pvHash(S.g) }; pv.sent.push(m);
+  if (NET.r) NET.r.emit('act', m).catch(() => { /* ignore */ });
+}
+function pvArgsOk(a) { return Array.isArray(a) && a.length <= 8 && a.every(v => v === null || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v)) || (Array.isArray(v) && v.length <= 40 && v.every(x => typeof x === 'number' && isFinite(x)))); }
+function pvDrain() {
+  const pv = S.pv; if (!pv) return;
+  while (pv.buf[pv.rn + 1]) { const m = pv.buf[pv.rn + 1]; delete pv.buf[pv.rn + 1]; pv.rn++; pvApply(m); }
+  if (Object.keys(pv.buf).length && Date.now() - (pv.needAt || 0) > 1200) { pv.needAt = Date.now(); if (NET.r) NET.r.emit('sync', { t: 'need', from: pv.rn + 1 }).catch(() => { /* ignore */ }); }
+}
+function pvApply(m) {
+  const g = S.g, opp = 1 - ME;
+  if (PV_OPS.indexOf(m.op) < 0 || !pvArgsOk(m.a)) return;
+  const a = m.a.map(v => v === null && m.op === 'cxSpend' ? undefined : v), mark = g.log.length;
+  let r; try { r = A[m.op](g, opp, ...a); } catch (e) { r = null; }
+  if (r === false || r === null || (r && r.ok === false)) { pvWarn('แอคชั่นของเพื่อนใช้ไม่ได้ในเครื่องนี้ (' + m.op + ')'); }
+  else if (m.h && g.phase === 'main' && m.h !== pvHash(g) && !S.pv.warned) { S.pv.warned = true; pvWarn('เกมสองเครื่องไม่ตรงกัน กรุณาแจ้งผู้พัฒนา'); }
+  S.pv.rcv = (S.pv.rcv || 0) + 1;
+  renderGame();
+  const fresh = g.log.slice(mark); if (fresh.length && g.phase !== 'over' && ['play', 'drive'].indexOf(m.op) >= 0) showBotAct(fresh);
+  if (g.phase === 'over') showEnd(); else if (m.op === 'endTurn' && g.cur === ME) toast('เทิร์นของคุณ');
+}
+function pvWarn(t) { toast('⚠ ' + t); try { console.warn(t); } catch (e) { /* ignore */ } }
+function pvOnAct(msg) {
+  if (!S.pv || !msg || msg.isMe || msg.sameTab) return; const m = msg.data;
+  if (!m || typeof m !== 'object' || !Number.isInteger(m.n) || m.n <= S.pv.rn || m.n > S.pv.rn + 500 || typeof m.op !== 'string') return;
+  S.pv.buf[m.n] = { n: m.n, op: m.op, a: m.a, h: typeof m.h === 'string' ? m.h : '' }; pvDrain();
+}
+function pvOnSync(msg) {
+  if (!msg || msg.isMe || msg.sameTab) return; const d = msg.data; if (!d || typeof d !== 'object') return;
+  if (d.t === 'start' && !S.pv) { const cfg = pvCfgOk(d.cfg); if (cfg) { pvBegin(cfg, 1); if (NET.r) NET.r.emit('sync', { t: 'ack' }).catch(() => { /* ignore */ }); } }
+  else if (d.t === 'start' && S.pv && NET.r) NET.r.emit('sync', { t: 'ack' }).catch(() => { /* ignore */ });
+  else if (d.t === 'ack' && S.pv && S.pv.startTimer) { clearInterval(S.pv.startTimer); S.pv.startTimer = null; }
+  else if (d.t === 'need' && S.pv && Number.isInteger(d.from)) S.pv.sent.filter(m => m.n >= d.from).slice(0, 200).forEach(m => { if (NET.r) NET.r.emit('act', m).catch(() => { /* ignore */ }); });
+}
+function pvCfgOk(c) {
+  try {
+    if (!c || !Array.isArray(c.teams) || c.teams.length !== 2 || !Array.isArray(c.decks) || c.decks.length !== 2 || !Number.isInteger(c.seed)) return null;
+    for (let i = 0; i < 2; i++) { if (!Array.isArray(c.teams[i]) || c.teams[i].length !== 4 || !c.teams[i].every(id => A.WEAVERS[id])) return null; if (!Array.isArray(c.decks[i]) || c.decks[i].length > 40 || !c.decks[i].every(id => A.CARDS[id])) return null; }
+    const cx = [0, 1].map(i => ((c.cx && c.cx[i]) || []).filter(id => A.CXD[id]).slice(0, 3));
+    return { seed: c.seed, teams: c.teams.map(t => t.slice()), decks: c.decks.map(d => d.slice()), cx, names: [0, 1].map(i => pvpClean(c.names && c.names[i]) || (i ? 'เพื่อน' : 'เจ้าของห้อง')) };
+  } catch (e) { return null; }
+}
+function pvBegin(cfg, seat) {
+  ME = seat; A.CX.on = true; A.setNames(cfg.names);
+  S.pv = { seat, cfg, oppName: cfg.names[1 - seat], n: 0, rn: 0, sent: [], buf: {}, uns: [], startTimer: null };
+  S.exited = false; S.cxAuto = null; S.busy = false; S.mullSel = null; S.tut = null; S.rec = null;
+  S.g = A.newGame({ teams: cfg.teams, decks: cfg.decks.map(d => d.slice()), rng: A.mulberry32(cfg.seed), interactive: true, pvp: true, cx: cfg.cx, mseed: cfg.seed });
+  S.g.hb = null;
+  if (NET.r) { S.pv.uns.push(NET.r.on('act', pvOnAct)); NET.r.presence({ ing: 1 }); }
+  ov('#ov-end', false); show('s-game'); renderGame(); openMull();
+}
+function pvpStart() {
+  if (!NET.r || !PVP.host) return;
+  const ps = NET.r.peers().filter(p => p.kind !== 'agent'), me = ps.find(p => p.isMe), op = ps.find(p => !p.isMe);
+  if (ps.length !== 2 || !me || !op) { toast('ต้องมีผู้เล่นสองคนในห้อง'); return; }
+  const oq = op.presence || {}, d = pvpDeckState(); if (!d.ok) { toast(d.why); return; }
+  const oteam = Array.isArray(oq.tm) ? oq.tm : [], odeck = typeof oq.dk === 'string' ? oq.dk.split(',') : [];
+  let err = A.validateDeck(oteam, odeck); if (err || !oteam.length) { toast('Deck ของเพื่อนยังไม่พร้อม'); return; }
+  const cfg = pvCfgOk({ seed: (Math.random() * 1e9) | 0, teams: [S.team.slice(0, 4), oteam], decks: [deckList(), odeck], cx: [(S.cx || []).slice(0, 3), oq.cx || []], names: [PVP.name, pvpClean(oq.n) === PVP.name ? pvpClean(oq.n) + '2' : pvpClean(oq.n) || 'เพื่อน'] });
+  if (!cfg) { toast('เริ่มเกมไม่ได้ ข้อมูล Deck ไม่ถูกต้อง'); return; }
+  pvBegin(cfg, 0);
+  let tries = 0; const send = () => { if (!NET.r || !S.pv || tries++ > 20) { if (S.pv && S.pv.startTimer) { clearInterval(S.pv.startTimer); S.pv.startTimer = null; } return; } NET.r.emit('sync', { t: 'start', cfg: S.pv.cfg }).catch(() => { /* ignore */ }); };
+  send(); S.pv.startTimer = setInterval(send, 1500);
+}
+function pvFreeNeeded(g) {
+  if (!S.pv || g.phase !== 'cxfree' || !g.pvpFree || g.pvpFree[ME] !== undefined || !g.p[ME].cx) return false;
+  if (!g.p[ME].cx.list.length) { act('cxFreeP', null); setTimeout(renderGame, 0); return false; }
+  return true;
+}
+function pvStatus() {
+  let el = $('#pvbar'); const pv = S.pv, g = S.g;
+  if (!pv || !g || !$('#s-game').classList.contains('on') || g.phase === 'over') { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'pvbar'; document.body.appendChild(el); }
+  const o = esc(pv.oppName); let t = '';
+  if (pv.gone) t = '⚠ ' + o + ' ออกจากเกมแล้ว';
+  else if (g.phase === 'mulligan') t = g.p[ME].mullDone ? 'รอ ' + o + ' เปลี่ยนไพ่เริ่มต้น…' : '';
+  else if (g.phase === 'cxfree') t = g.pvpFree && g.pvpFree[ME] !== undefined ? 'รอ ' + o + ' เลือก Core…' : '';
+  else if (g.pend && g.pend.p !== ME) t = o + ' กำลังเลือก…';
+  else if (g.cur !== ME) t = 'เทิร์นของ ' + o;
+  else t = 'เทิร์นของคุณ';
+  el.textContent = t; el.classList.toggle('on', !!t); el.classList.toggle('mine', t === 'เทิร์นของคุณ'); el.classList.toggle('warn', !!pv.gone);
+}
+function pvPeerWatch(peers) {
+  const pv = S.pv; if (!pv || !S.g || S.g.phase === 'over') return;
+  const n = peers.filter(p => p.kind !== 'agent').length;
+  if (n < 2 && !pv.gone) { pv.gone = true; toast(pv.oppName + ' ออกจากเกมหรือหลุดการเชื่อมต่อ'); pvStatus(); }
+  else if (n >= 2 && pv.gone) { pv.gone = false; toast(pv.oppName + ' กลับมาแล้ว'); if (pv.sent.length && NET.r) NET.r.emit('sync', { t: 'need', from: pv.rn + 1 }).catch(() => { /* ignore */ }); pvStatus(); }
+}
+async function pvQuit() {
+  const pv = S.pv; if (pv) { (pv.uns || []).forEach(u => { try { u(); } catch (e) { /* ignore */ } }); if (pv.startTimer) clearInterval(pv.startTimer); }
+  S.pv = null; ME = 0; A.setNames(null); S.exited = true; const b = $('#pvbar'); if (b) b.remove();
+  PVP.ready = false; await NET.close();
 }
 const PVP_ERR = { 'no-room': 'ไม่พบห้องรหัสนี้ (เจ้าของห้องต้องเปิดห้องค้างไว้ก่อน)', 'id-taken': 'รหัสห้องซ้ำ ลองสร้างใหม่', 'peer-load': 'โหลด PeerJS ไม่ได้ (ตรวจอินเทอร์เน็ต หรือบล็อกสคริปต์)', net: 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง' };
 async function pvpEnter(code, host) {
@@ -2833,7 +2959,7 @@ async function pvpEnter(code, host) {
   PVP.busy = false;
   if (err) { toast(PVP_ERR[err.message] || PVP_ERR.net); pvpRender(); return; }
   if (NET.r.onClose) NET.r.onClose(why => { toast(why === 'full' ? 'ห้องเต็มแล้ว (มีผู้เล่นครบสองคน)' : 'การเชื่อมต่อกับห้องหลุด'); pvpLeave(); });
-  pvpPresence(); pvpRender();
+  NET.r.on('sync', pvOnSync); pvpPresence(); pvpRender();
 }
 async function pvpLeave() { PVP.ready = false; await NET.close(); pvpRender(); }
 function pvpMode(v) { if (['auto', 'peer', 'local'].indexOf(v) < 0) v = 'auto'; NET.mode = v; try { localStorage.setItem(KEY + '-net', v); } catch (e) { /* ignore */ } }
@@ -3004,26 +3130,27 @@ function tutRefresh() {
   box.classList.toggle('bot', !!r && r.top + r.height / 2 < innerHeight * 0.22);
 }
 function tutNext() { if (!S.tut) return; S.tut.i++; tutRefresh(); }
-function afterAction() { renderGame(); if (S.g.phase === 'over') showEnd(); else if (S.g.cur === 1 && S.g.phase === 'main' && !S.g.pend && !S.busy) runBot(); }
+function afterAction() { renderGame(); if (S.g.phase === 'over') showEnd(); else if (!S.pv && S.g.cur === 1 && S.g.phase === 'main' && !S.g.pend && !S.busy) runBot(); }
 function showEnd() {
   if (S.exited) return;
-  const g = S.g; const t = g.winner === 0 ? 'ชนะ!' : g.winner === 1 ? 'แพ้' : 'เสมอ';
-  $('#end-body').innerHTML = '<div class="res-t" style="color:' + (g.winner === 0 ? 'var(--brass)' : 'var(--ember)') + '">' + t + '</div><p style="text-align:center;color:var(--mute)">' + g.turn + ' เทิร์น · Unity-Link คุณ ' + Math.max(0, g.p[0].life) + ' / บอท ' + Math.max(0, g.p[1].life) + '</p>' + (g.hb ? '<p style="text-align:center;color:var(--mute);font-size:12px">บอทสาย' + esc(S.botLabel || '') + ' · พลาด ' + g.hb.slips + ' ครั้งในเกมนี้</p>' : '') +
+  const g = S.g; const t = g.winner === ME ? 'ชนะ!' : g.winner === 1 - ME ? 'แพ้' : 'เสมอ';
+  $('#end-body').innerHTML = '<div class="res-t" style="color:' + (g.winner === ME ? 'var(--brass)' : 'var(--ember)') + '">' + t + '</div><p style="text-align:center;color:var(--mute)">' + g.turn + ' เทิร์น · Unity-Link คุณ ' + Math.max(0, g.p[ME].life) + ' / ' + oppLabel() + ' ' + Math.max(0, g.p[1 - ME].life) + '</p>' + (g.hb ? '<p style="text-align:center;color:var(--mute);font-size:12px">บอทสาย' + esc(S.botLabel || '') + ' · พลาด ' + g.hb.slips + ' ครั้งในเกมนี้</p>' : '') +
     '<div class="row" style="justify-content:center;margin-top:14px"><button class="btn" id="e-again">เล่นอีกครั้ง</button><button class="btn ghost" id="e-deck">แก้ Deck</button><button class="btn" id="e-view">ดูกระดาน</button><button class="btn ghost" id="e-rep">แชร์รีเพลย์</button><button class="btn ghost" id="e-fb">ส่งฟีดแบ็ก</button><button class="btn ghost" id="e-log">ดูบันทึก</button><button class="btn ghost" id="e-exit">ออก</button></div>';
+  if (S.pv) $('#end-body').querySelector('.row').innerHTML = '<button class="btn" id="e-room">กลับห้อง</button><button class="btn ghost" id="e-view">ดูกระดาน</button><button class="btn ghost" id="e-exit">ออก</button>';
   ov('#ov-end', true);
 }
 async function showBotAct(ents) {
-  const mine = ents.filter(e => e.p === 1 && e.t).slice(0, 4); if (!mine.length) return;
+  const mine = ents.filter(e => e.p === 1 - ME && e.t).slice(0, 4); if (!mine.length) return;
   const cardE = mine.find(e => e.c); let h = '';
   if (cardE) h += '<div class="bfx-card">' + cardHTML(cardE.c, { noact: true }) + '</div>';
-  h += '<div class="bfx-t">' + mine.map(e => '<div>' + esc(e.t.replace(/^บอท · /, '')) + '</div>').join('') + '</div>';
+  h += '<div class="bfx-t">' + mine.map(e => '<div>' + esc(e.t.replace(/^[^·]+ · /, '')) + '</div>').join('') + '</div>';
   let el = $('#botfx'); if (!el) { el = document.createElement('div'); el.id = 'botfx'; document.body.appendChild(el); }
   el.innerHTML = h; el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
   await sleep(cardE ? 2200 : 1500); el.classList.remove('on');
   await sleep(250);
 }
 async function runBot() {
-  const g = S.g; if (S.busy || g.pend) return; S.busy = true; renderGame();
+  const g = S.g; if (S.pv || S.busy || g.pend) return; S.busy = true; renderGame();
   try {
     while (g.phase !== 'over' && g.cur === 1) {
       await sleep(900);
@@ -3044,12 +3171,12 @@ function showSnare() {
   $('#snare-body').innerHTML = '<p>' + esc(A.WEAVERS[g.p[0].weavers[q.wi].id].name) + ' · ศัตรูประกาศ <b>' + esc(q.act || 'แอคชั่น') + '</b> · ใช้ Snare <b>' + esc(c.name) + '</b> ก่อนผลทำงานไหม (เสีย 1 Aether)</p><div class="row" style="justify-content:center"><button class="btn" id="sn-yes">ใช้ Snare</button><button class="btn ghost" id="sn-no">ข้าม</button></div>';
   ov('#ov-snare', true);
 }
-function doPlay(hi, wi) { if (tutBlock('play', { hi, wi })) return; const r = A.play(S.g, 0, hi, wi); if (!r.ok) { toast(r.why); return; } afterAction(); }
-function doDrive(wi) { if (tutBlock('drive', { wi })) return; const r = A.drive(S.g, 0, wi); if (!r.ok) { toast(r.why); return; } afterAction(); }
-function openDisc() { const g = S.g, pl = g.p[0], need = A.handOver(g, 0); if (!S.discSel) S.discSel = new Set();
+function doPlay(hi, wi) { if (tutBlock('play', { hi, wi })) return; const r = act('play', hi, wi); if (!r.ok) { toast(r.why); return; } afterAction(); }
+function doDrive(wi) { if (tutBlock('drive', { wi })) return; const r = act('drive', wi); if (!r.ok) { toast(r.why); return; } afterAction(); }
+function openDisc() { const g = S.g, pl = g.p[ME], need = A.handOver(g, ME); if (!S.discSel) S.discSel = new Set();
   $('#disc-body').innerHTML = '<p class="lab">มือ ' + pl.hand.length + ' ใบ ต้องไม่เกิน ' + A.HAND_MAX + ' ก่อนจบเทิร์น · เลือกทิ้ง ' + need + ' ใบ (ลง Smelter)</p>' + pl.hand.map((cid, i) => { const c = A.CARDS[cid], f = FAC[c.fac]; return '<button class="chip' + (S.discSel.has(i) ? ' on' : '') + '" style="display:block;width:100%;text-align:left;margin:4px 0" data-disc="' + i + '"><b>' + esc(c.name) + '</b> · ' + TYPE[c.type] + ' · ' + '◆'.repeat(c.pr) + ' · ' + esc(f.name) + '</button>'; }).join('');
   $('#disc-go').textContent = 'ทิ้ง ' + S.discSel.size + '/' + need + ' ใบ แล้วจบเทิร์น'; $('#disc-go').disabled = S.discSel.size !== need; ov('#ov-disc', true); }
-function endMyTurn() { if (!canActNow()) return; if (tutBlock('end', {})) return; if (A.handOver(S.g, 0)) { S.discSel = new Set(); openDisc(); return; } A.endTurn(S.g, 0); renderGame(); if (S.g.phase === 'over') { showEnd(); return; } runBot(); }
+function endMyTurn() { if (!canActNow()) return; if (tutBlock('end', {})) return; if (A.handOver(S.g, ME)) { S.discSel = new Set(); openDisc(); return; } act('endTurn'); renderGame(); if (S.g.phase === 'over') { showEnd(); return; } if (!S.pv) runBot(); }
 
 /* ---------- team / deck screens ---------- */
 function weavPanel() {
@@ -3130,7 +3257,7 @@ function renderLib() { const L = S.lib; L.typ = L.typ || 'all'; L.tab = L.tab ||
 }
 function openLib() { S.lib.tab = 'cards'; renderLib(); ov('#ov-lib', true); }
 function openSmelt(p) { S.smP = p; const g = S.g; if (!g) return;
-  $('#sm-tabs').innerHTML = [[0, 'ของคุณ'], [1, 'ของบอท']].map(t => '<button class="chip' + (S.smP === t[0] ? ' on' : '') + '" data-smtab="' + t[0] + '">' + t[1] + ' (' + g.p[t[0]].smelter.length + ')</button>').join('');
+  $('#sm-tabs').innerHTML = [[ME, 'ของคุณ'], [1 - ME, 'ของ' + oppLabel()]].map(t => '<button class="chip' + (S.smP === t[0] ? ' on' : '') + '" data-smtab="' + t[0] + '">' + t[1] + ' (' + g.p[t[0]].smelter.length + ')</button>').join('');
   const l = g.p[S.smP].smelter.slice().reverse();
   $('#sm-body').innerHTML = l.length ? '<p class="libnote sm">Smelter = กองทิ้ง เปิดดูได้ทั้งสองฝั่ง · ใบบนสุด (ล่าสุด) อยู่ซ้ายสุด · แตะการ์ดเพื่อดูรายละเอียด</p><div class="libgrid">' + l.map(id => cardHTML(id)).join('') + '</div>' : '<p class="libnote">Smelter ว่าง</p>';
   ov('#ov-smelt', true); }
@@ -3153,12 +3280,12 @@ document.addEventListener('click', e => {
   if ((el = t.closest('[data-cxsel]'))) { S.cx = S.cx || []; const id = el.dataset.cxsel, i = S.cx.indexOf(id); if (i >= 0) S.cx.splice(i, 1); else if (A.CXD[id].solo) { S.cx = [id]; if (i < 0) toast('Madness ใช้ได้ใบเดียวเท่านั้น ล้างตัวเลือกอื่น'); } else if (S.cx.some(x => A.CXD[x].solo)) { S.cx = [id]; toast('เลือก Core อื่นแล้ว เอา Madness ออก'); } else if (S.cx.length < 3) S.cx.push(id); else toast('เลือกได้สูงสุด 3 ใบ'); save(); renderDeck(); openCxPick(); return; }
   if ((el = t.closest('[data-cxopen]'))) { openCxPick(); return; }
   if ((el = t.closest('[data-cxback]'))) { openCxPick(); return; }
-  if ((el = t.closest('[data-cxfree]'))) { const v = el.dataset.cxfree; ov('#ov-cxfree', false); A.cxFree(S.g, 0, v === 'none' ? null : +v); afterAction(); if (S.g.cur === 0 && S.g.phase === 'main') toast('เทิร์นของคุณ'); return; }
+  if ((el = t.closest('[data-cxfree]'))) { const v = el.dataset.cxfree; ov('#ov-cxfree', false); if (S.pv) act('cxFreeP', v === 'none' ? null : +v); else A.cxFree(S.g, 0, v === 'none' ? null : +v); afterAction(); if (S.g.cur === ME && S.g.phase === 'main') toast('เทิร์นของคุณ'); return; }
   if ((el = t.closest('[data-playhi]'))) { if (el.disabled) return; ov('#ov-preview', false); doPlay(+el.dataset.playhi, +el.dataset.playwi); return; }
   if ((el = t.closest('[data-drive]'))) { if (el.disabled) return; ov('#ov-preview', false); doDrive(+el.dataset.drive); return; }
   if ((el = t.closest('#circ-mini'))) { openCirc(null, true); return; }
   if ((el = t.closest('#circ-body [data-cx]'))) { if (S.g && S.g.pend && S.g.pend.kind === 'circ') circTap(+el.dataset.cx, +el.dataset.cy); return; }
-  if ((el = t.closest('[data-pick]'))) { A.resolveCard(S.g, 0, +el.dataset.pick); ov('#ov-pick', false); afterAction(); return; }
+  if ((el = t.closest('[data-pick]'))) { act('resolveCard', +el.dataset.pick); ov('#ov-pick', false); afterAction(); return; }
   if ((el = t.closest('[data-mull]'))) { const i = +el.dataset.mull; if (!S.mullSel) S.mullSel = new Set(); if (S.mullSel.has(i)) S.mullSel.delete(i); else S.mullSel.add(i); openMull(); return; }
   if ((el = t.closest('[data-libtab]'))) { S.lib.tab = el.dataset.libtab; renderLib(); return; }
   if ((el = t.closest('[data-libw]'))) { openWeaverInfo(el.dataset.libw); return; }
@@ -3167,7 +3294,7 @@ document.addEventListener('click', e => {
   if ((el = t.closest('[data-prev]'))) { openCard(el.dataset.prev); return; }
   if ((el = t.closest('[data-team]'))) { const id = el.dataset.team; const i = S.team.indexOf(id); if (i >= 0) S.team.splice(i, 1); else if (S.team.length < 4) S.team.push(id); else toast('เลือกได้ 4 ตัว'); S.deck = pruneDeck(); save(); renderDeck(); return; }
   if (t.closest('[data-weavtog]')) { S.weavOpen = !S.weavOpen; renderDeck(); return; }
-  if ((el = t.closest('[data-disc]'))) { const i = +el.dataset.disc; if (S.discSel.has(i)) S.discSel.delete(i); else if (S.discSel.size < A.handOver(S.g, 0)) S.discSel.add(i); openDisc(); return; }
+  if ((el = t.closest('[data-disc]'))) { const i = +el.dataset.disc; if (S.discSel.has(i)) S.discSel.delete(i); else if (S.discSel.size < A.handOver(S.g, ME)) S.discSel.add(i); openDisc(); return; }
   if ((el = t.closest('[data-smelt]'))) { openSmelt(+el.dataset.smelt); return; }
   if ((el = t.closest('[data-smtab]'))) { openSmelt(+el.dataset.smtab); return; }
   if ((el = t.closest('#sm-body [data-card]'))) { openCard(el.dataset.card); return; }
@@ -3180,18 +3307,18 @@ document.addEventListener('click', e => {
   if ((el = t.closest('[data-typ]'))) { S.typ = el.dataset.typ; renderDeck(); return; }
   if ((el = t.closest('[data-inc]'))) { const id = el.dataset.inc; if ((S.deck[id] || 0) < 2 && deckCount() < 32) S.deck[id] = (S.deck[id] || 0) + 1; save(); keepScroll(renderDeck); return; }
   if ((el = t.closest('[data-dec]'))) { const id = el.dataset.dec; if (S.deck[id]) { S.deck[id]--; if (!S.deck[id]) delete S.deck[id]; } save(); keepScroll(renderDeck); return; }
-  if ((el = t.closest('[data-bp]'))) { const [p, i] = el.dataset.bp.split('-').map(Number); { const b = S.g.p[p].bp[i]; openCard(b.card.id); const inf = $('#pv-body .info'); if (inf) inf.insertAdjacentHTML('afterbegin', '<p><b>บนโต๊ะ (' + (p === 0 ? 'ของคุณ' : 'ของบอท') + ')</b> · <span class="st-s">' + ic('stab') + ' Stability ' + b.stab + '</span>' + (b.supp ? ' · <span class="st-u">' + ic('supp') + ' Suppressor ' + b.supp + '</span>' : '') + '</p>'); } return; }
-  if (t.closest('#b-yes') || t.closest('#b-no')) { if (A.resolveYN(S.g, 0, !!t.closest('#b-yes'))) afterAction(); return; }
-  if (t.closest('#b-skip')) { if (A.skipTarget(S.g, 0)) afterAction(); return; }
-  if ((el = t.closest('[data-wp]'))) { const p = +el.dataset.wp, wi = +el.dataset.wi; const g = S.g; if (g.pend && g.pend.p === 0 && g.pend.kind === 'target') { if (A.resolveTarget(g, 0, p, wi)) afterAction(); return; } openWeaver(p, wi); return; }
+  if ((el = t.closest('[data-bp]'))) { const [p, i] = el.dataset.bp.split('-').map(Number); { const b = S.g.p[p].bp[i]; openCard(b.card.id); const inf = $('#pv-body .info'); if (inf) inf.insertAdjacentHTML('afterbegin', '<p><b>บนโต๊ะ (' + (p === ME ? 'ของคุณ' : 'ของ' + oppLabel()) + ')</b> · <span class="st-s">' + ic('stab') + ' Stability ' + b.stab + '</span>' + (b.supp ? ' · <span class="st-u">' + ic('supp') + ' Suppressor ' + b.supp + '</span>' : '') + '</p>'); } return; }
+  if (t.closest('#b-yes') || t.closest('#b-no')) { if (act('resolveYN', !!t.closest('#b-yes'))) afterAction(); return; }
+  if (t.closest('#b-skip')) { if (act('skipTarget')) afterAction(); return; }
+  if ((el = t.closest('[data-wp]'))) { const p = +el.dataset.wp, wi = +el.dataset.wi; const g = S.g; if (g.pend && g.pend.p === ME && g.pend.kind === 'target') { if (act('resolveTarget', p, wi)) afterAction(); return; } openWeaver(p, wi); return; }
   if ((el = t.closest('.hcard'))) { openCard(el.querySelector('[data-card]').dataset.card, +el.dataset.i); return; }
   if (t.closest('.xbtn')) { $$('.ov').forEach(o => { if (o.id !== 'ov-mull' && o.id !== 'ov-end' && o.id !== 'ov-pick' && !(o.id === 'ov-circ' && S.g && S.g.pend && S.g.pend.kind === 'circ')) { o.classList.remove('on'); delete o.dataset.view; }; }); return; }
   const id = t.closest('button') && t.closest('button').id;
   switch (id) {
     case 'b-end': if (S.g && S.g.phase === 'over') showEnd(); else endMyTurn(); break;
     case 'cc-flip': circFlip(); break;
-    case 'cc-go': { const pd = S.g.pend; if (pd && pd.kind === 'circ') { A.resolveCirc(S.g, 0, S.cs.k); S.cs = null; ov('#ov-circ', false); afterAction(); } break; }
-    case 'b-exit': { const b = $('#b-exit'); if (b && b.dataset.arm) { clearTimeout(S.exT); S.exited = true; $$('.ov').forEach(o => { o.classList.remove('on'); delete o.dataset.view; }); show('s-title'); } else if (b) { b.dataset.arm = '1'; b.textContent = 'ออกจริง?'; b.classList.remove('ghost'); S.exT = setTimeout(() => { const c = $('#b-exit'); if (c) { delete c.dataset.arm; c.textContent = 'ออก'; c.classList.add('ghost'); } }, 3000); } break; }
+    case 'cc-go': { const pd = S.g.pend; if (pd && pd.kind === 'circ') { act('resolveCirc', S.cs.k); S.cs = null; ov('#ov-circ', false); afterAction(); } break; }
+    case 'b-exit': { const b = $('#b-exit'); if (b && b.dataset.arm) { clearTimeout(S.exT); S.exited = true; if (S.pv) pvQuit(); $$('.ov').forEach(o => { o.classList.remove('on'); delete o.dataset.view; }); show('s-title'); } else if (b) { b.dataset.arm = '1'; b.textContent = 'ออกจริง?'; b.classList.remove('ghost'); S.exT = setTimeout(() => { const c = $('#b-exit'); if (c) { delete c.dataset.arm; c.textContent = 'ออก'; c.classList.add('ghost'); } }, 3000); } break; }
     case 'b-log': openLog(); break;
     case 'b-rules': case 't-rules': openRules(); break;
     case 't-lib': openLib(); break;
@@ -3223,27 +3350,29 @@ document.addEventListener('click', e => {
     case 'pvp-join': { const c = String($('#pvp-in').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); if (c.length !== 4) { toast('รหัสห้องมี 4 ตัวอักษร'); break; } pvpEnter(c, false); break; }
     case 'pvp-ready': PVP.ready = !PVP.ready; pvpPresence(); pvpRender(); break;
     case 'pvp-leave': pvpLeave(); break;
-    case 'pvp-deck': pvpLeave(); show(S.team && S.team.length === 4 ? 's-deck' : 's-team'); break;
+    case 'pvp-deck': S.fromPvp = true; PVP.ready = false; S.deck = pruneDeck(); S.weavOpen = false; renderDeck(); show('s-deck'); break;
     case 'pvp-copy': copyText('เข้าเล่น Aetherpunk กับฉัน: เปิดเกม > เล่นกับเพื่อน > ใส่รหัสห้อง ' + PVP.code); toast('คัดลอกคำเชิญแล้ว'); break;
-    case 'pvp-go': toast('การซิงก์เกมจะเปิดในอัปเดตถัดไป'); break;
+    case 'pvp-go': pvpStart(); break;
     case 't-quick': { const rng = A.mulberry32((Math.random() * 1e9) | 0); S.team = A.randomTeam(rng); const d = A.comboDeck(S.team, rng); S.deck = {}; d.forEach(c => S.deck[c] = (S.deck[c] || 0) + 1); save(); startGame(); break; }
     case 'team-back': case 'deck-back-title': show('s-title'); break;
     case 'team-rand': { const rng = A.mulberry32((Math.random() * 1e9) | 0); S.team = A.shuffle(A.WEAVER_IDS.slice(), rng).slice(0, 4); S.deck = pruneDeck(); save(); renderTeam(); break; }
     case 'team-next': S.deck = pruneDeck(); renderDeck(); show('s-deck'); break;
-    case 'deck-back': show('s-title'); break;
+    case 'deck-back': if (S.fromPvp) { S.fromPvp = false; PVP.ready = false; pvpPresence(); openPvp(); } else show('s-title'); break;
     case 'deck-rand': { const rng = A.mulberry32((Math.random() * 1e9) | 0); S.team = A.shuffle(A.WEAVER_IDS.slice(), rng).slice(0, 4); S.deck = pruneDeck(); save(); renderDeck(); break; }
     case 'deck-auto': { if (!S.team || S.team.length < 4) S.team = A.shuffle(A.WEAVER_IDS.slice(), A.mulberry32((Math.random() * 1e9) | 0)).slice(0, 4); const d = A.comboDeck(S.team, Math.random); S.deck = {}; d.forEach(c => S.deck[c] = (S.deck[c] || 0) + 1); save(); renderDeck(); break; }
     case 'deck-clear': S.deck = {}; save(); renderDeck(); break;
     case 'deck-go': startGame(); break;
-    case 'disc-go': { const need = A.handOver(S.g, 0); if (S.discSel && S.discSel.size === need) { A.trimDiscard(S.g, 0, [...S.discSel]); S.discSel = null; ov('#ov-disc', false); endMyTurn(); } break; }
-    case 'mull-go': ov('#ov-mull', false); if (S.mullSel && S.mullSel.size) A.mulligan(S.g, 0, [...S.mullSel]); S.mullSel = null; A.mulliganDone(S.g, 0); renderGame(); if (S.g.pend && S.g.pend.kind === 'cxfree') break; if (S.g.cur === 1) runBot(); else toast('เทิร์นของคุณ'); break;
-    case 'sn-yes': { const q = S.g.snareQ.shift(); if (q) { A.useSnare(S.g, 0, q.cid, q.wi); } ov('#ov-snare', false); renderGame(); break; }
+    case 'disc-go': { const need = A.handOver(S.g, ME); if (S.discSel && S.discSel.size === need) { act('trimDiscard', [...S.discSel]); S.discSel = null; ov('#ov-disc', false); endMyTurn(); } break; }
+    case 'mull-go': if (S.pv) { ov('#ov-mull', false); if (S.mullSel && S.mullSel.size) act('mulligan', [...S.mullSel]); S.mullSel = null; act('mulliganDone'); renderGame(); break; }
+    ov('#ov-mull', false); if (S.mullSel && S.mullSel.size) A.mulligan(S.g, 0, [...S.mullSel]); S.mullSel = null; A.mulliganDone(S.g, 0); renderGame(); if (S.g.pend && S.g.pend.kind === 'cxfree') break; if (S.g.cur === 1) runBot(); else toast('เทิร์นของคุณ'); break;
+    case 'sn-yes': { const q = S.g.snareQ.shift(); if (q) { A.useSnare(S.g, ME, q.cid, q.wi); } ov('#ov-snare', false); renderGame(); break; }
     case 'sn-no': S.g.snareQ.shift(); ov('#ov-snare', false); break;
     case 'e-again': ov('#ov-end', false); startGame(); break;
     case 'e-deck': ov('#ov-end', false); renderDeck(); show('s-deck'); break;
     case 'e-view': ov('#ov-end', false); toast('ดูกระดานได้ · กดปุ่ม "ผลเกม" เพื่อกลับมาดูผล'); break;
     case 'e-log': openLog(); break;
-    case 'e-exit': ov('#ov-end', false); S.exited = true; show('s-title'); break;
+    case 'e-exit': ov('#ov-end', false); S.exited = true; if (S.pv) pvQuit(); show('s-title'); break;
+    case 'e-room': ov('#ov-end', false); pvQuit().then(() => openPvp()); break;
   }
 });
 function pruneDeck() { const d = {}; for (const k in S.deck) { const c = A.CARDS[k]; if (!c || (c.type === 'circuit' && !A.CIRC.on)) continue; if (!c.bound || S.team.includes(c.bound)) d[k] = S.deck[k]; } return d; }
@@ -3260,10 +3389,10 @@ document.addEventListener('pointerdown', e => {
 function startDrag(e) {
   const d = S.drag; d.on = true; d.el.classList.add('dragging');
   const gh = document.createElement('div'); gh.className = 'dragghost';
-  if (d.kind === 'card') gh.innerHTML = cardHTML(S.g.p[0].hand[d.i]); else { const w = S.g.p[0].weavers[d.wi]; gh.innerHTML = '<div class="wchip" style="--fc:' + FAC[A.WEAVERS[w.id].fac].color + ';width:110px"><div class="wn">' + esc(A.WEAVERS[w.id].name) + '</div><div class="wm">Drive → ปล่อยที่สนาม</div></div>'; }
+  if (d.kind === 'card') gh.innerHTML = cardHTML(S.g.p[ME].hand[d.i]); else { const w = S.g.p[ME].weavers[d.wi]; gh.innerHTML = '<div class="wchip" style="--fc:' + FAC[A.WEAVERS[w.id].fac].color + ';width:110px"><div class="wn">' + esc(A.WEAVERS[w.id].name) + '</div><div class="wm">Drive → ปล่อยที่สนาม</div></div>'; }
   document.body.appendChild(gh); d.ghost = gh; $('#cancel').classList.add('on');
-  if (d.kind === 'card') $$('[data-drop="weaver"][data-wp="0"]').forEach(x => x.classList.add(A.canPlay(S.g, 0, d.i, +x.dataset.wi).ok ? 'drop-ok' : 'drop-no'));
-  else { $$('.stagebox').forEach(f => f.classList.add(A.canDrive(S.g, 0, d.wi).ok ? 'drop-ok' : 'drop-no')); }
+  if (d.kind === 'card') $$('[data-drop="weaver"][data-wp="' + ME + '"]').forEach(x => x.classList.add(A.canPlay(S.g, ME, d.i, +x.dataset.wi).ok ? 'drop-ok' : 'drop-no'));
+  else { $$('.stagebox').forEach(f => f.classList.add(A.canDrive(S.g, ME, d.wi).ok ? 'drop-ok' : 'drop-no')); }
   moveGhost(e);
 }
 function moveGhost(e) { const d = S.drag; d.ghost.style.left = e.clientX + 'px'; d.ghost.style.top = e.clientY + 'px'; const c = $('#cancel'); const r = c.getBoundingClientRect(); c.classList.toggle('hot', e.clientY < r.bottom + 14 && Math.abs(e.clientX - (r.left + r.width / 2)) < r.width / 2 + 20); }
