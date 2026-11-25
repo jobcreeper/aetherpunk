@@ -673,6 +673,7 @@ button.zsm { cursor: pointer; }
         <div class="pvp-card"><h3>เข้าห้องเพื่อน</h3><p>ใส่รหัสห้อง 4 ตัวอักษรที่เพื่อนส่งให้</p><div class="row"><input id="pvp-in" maxlength="4" placeholder="เช่น K7QM" autocomplete="off" style="text-transform:uppercase;width:110px"><button class="btn" id="pvp-join">เข้าห้อง</button></div></div>
         <p class="pvp-note">เล่นสลับเทิร์นแบบสด: เจ้าของห้องกด "เริ่มเกม" เมื่อทั้งสองกดพร้อม · Snare ในโหมดนี้ทำงานอัตโนมัติ · ถ้าเปิดใน claude.ai แล้วเพื่อนมีสิทธิ์แค่ดู (View) ให้เลือก "PeerJS" ทั้งสองฝั่ง</p>
       </div>
+      <pre id="pvp-err" style="display:none;white-space:pre-wrap;font-size:11px;color:#f2994a;border:1px solid #f2994a55;border-radius:8px;padding:8px;margin:6px 0;user-select:all"></pre>
       <div id="pvp-room" style="display:none">
         <div class="pvp-card"><div class="lab">รหัสห้อง</div><div class="pvp-code" id="pvp-code"></div><div class="row"><button class="btn ghost sm" id="pvp-copy">คัดลอกคำเชิญ</button><span class="pvp-net" id="pvp-net"></span></div></div>
         <div id="pvp-list"></div>
@@ -2779,9 +2780,9 @@ async function peerRoom(code, host) {
     c.on('error', () => { /* ignore */ });
   }
   await new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error('net')), 12000);
+    const t = setTimeout(() => { const er = new Error('net'); er.detail = 'peerjs:timeout(เซิร์ฟเวอร์ PeerJS ไม่ตอบ)'; rej(er); }, 12000);
     peer.on('open', () => { clearTimeout(t); res(); });
-    peer.on('error', e => { clearTimeout(t); rej(new Error(e && e.type === 'unavailable-id' ? 'id-taken' : 'net')); });
+    peer.on('error', e => { clearTimeout(t); const er = new Error(e && e.type === 'unavailable-id' ? 'id-taken' : 'net'); er.detail = 'peerjs:' + ((e && e.type) || e); rej(er); });
   });
   peer.on('error', e => { if (e && e.type === 'network' || e && e.type === 'disconnected') closeAll('lost'); });
   if (host) {
@@ -2805,9 +2806,9 @@ const NET = {
   r: null, un: null, kind: '', mode: 'auto',
   async open(code, onPeers, host) {
     const nm = 'ap-' + code.toLowerCase(); await NET.close();
-    let r = null, m = NET.mode;
-    if (m === 'auto' || m === 'claude') { try { const room = window.claude && window.claude.use ? await window.claude.use('room') : null; if (room && room.join) { r = await room.join(nm); NET.kind = 'claude'; } } catch (e) { r = null; } }
-    if (!r && (m === 'auto' || m === 'peer')) { r = await peerRoom(code, host); NET.kind = 'peer'; }
+    let r = null, m = NET.mode; NET.trace = ['โหมด=' + m + ' · รหัส=' + code + ' · ' + (host ? 'เจ้าของห้อง' : 'เข้าร่วม')];
+    if (m === 'auto' || m === 'claude') { try { const room = window.claude && window.claude.use ? await window.claude.use('room') : null; if (room && room.join) { r = await room.join(nm); NET.kind = 'claude'; NET.trace.push('ห้อง claude.ai: เชื่อมต่อแล้ว'); } else NET.trace.push('ห้อง claude.ai: ใช้ไม่ได้ในหน้านี้ (ไม่ได้เปิดใน claude.ai หรือไม่มีสิทธิ์)'); } catch (e) { r = null; NET.trace.push('ห้อง claude.ai ผิดพลาด: ' + ((e && (e.code || e.message)) || e)); } }
+    if (!r && (m === 'auto' || m === 'peer')) { try { r = await peerRoom(code, host); NET.kind = 'peer'; NET.trace.push('PeerJS: เชื่อมต่อแล้ว'); } catch (e) { NET.trace.push('PeerJS ผิดพลาด: ' + (e.detail || e.message)); throw e; } }
     if (!r && m === 'local') { if (typeof BroadcastChannel === 'undefined') throw new Error('net'); r = localRoom(nm); NET.kind = 'local'; }
     if (!r) throw new Error('net');
     NET.r = r; NET.un = r.onPeers(c => onPeers(c.peers)); return r;
@@ -2957,7 +2958,8 @@ async function pvpEnter(code, host) {
     try { PVP.code = code; await NET.open(code, pvpRender, host); err = null; break; } catch (e) { err = e; if (!(host && e.message === 'id-taken')) break; code = pvpCode(); }
   }
   PVP.busy = false;
-  if (err) { toast(PVP_ERR[err.message] || PVP_ERR.net); pvpRender(); return; }
+  if (err) { toast(PVP_ERR[err.message] || PVP_ERR.net); pvpRender(); const eb = $('#pvp-err'); if (eb) { eb.style.display = ''; eb.textContent = (PVP_ERR[err.message] || PVP_ERR.net) + '\n' + (NET.trace || []).join('\n'); } return; }
+  { const eb = $('#pvp-err'); if (eb) eb.style.display = 'none'; }
   if (NET.r.onClose) NET.r.onClose(why => { toast(why === 'full' ? 'ห้องเต็มแล้ว (มีผู้เล่นครบสองคน)' : 'การเชื่อมต่อกับห้องหลุด'); pvpLeave(); });
   NET.r.on('sync', pvOnSync); pvpPresence(); pvpRender();
 }
