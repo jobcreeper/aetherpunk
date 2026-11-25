@@ -2764,7 +2764,9 @@ async function peerRoom(code, host) {
   await loadPeerJS();
   const pid = 'aetherpunk-' + code.toLowerCase(), hs = { ev: {}, pe: [], cl: [] }, others = new Map();
   let mine = {}, conns = [], closed = false;
-  const peer = host ? new window.Peer(pid) : new window.Peer();
+  const ICE = { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }, { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }, { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }] } };
+  const peer = host ? new window.Peer(pid, ICE) : new window.Peer(ICE);
   const list = () => [{ peer: 'me', isMe: true, sameTab: true, kind: 'viewer', guest: false, presence: mine, updatedAt: Date.now() }].concat([...others.values()]);
   const fire = () => { const ps = list(); hs.pe.forEach(f => f({ peers: ps, joined: [], left: [], updated: [] })); };
   const sendAll = m => conns.forEach(c => { try { if (c.open) c.send(m); } catch (e) { /* ignore */ } });
@@ -2792,17 +2794,17 @@ async function peerRoom(code, host) {
   if (host) {
     peer.on('connection', c => { if (conns.length >= 1) { c.on('open', () => { try { c.send({ t: 'full' }); } catch (e) { /* ignore */ } setTimeout(() => { try { c.close(); } catch (e) { /* ignore */ } }, 300); }); return; } wire(c); });
   } else {
-    let okc = false;
-    for (let k = 0; k < 4 && !okc; k++) {
+    let okc = false, lastE = 'no-room';
+    for (let k = 0; k < 3 && !okc; k++) {
       try {
         await new Promise((res, rej) => {
-          const c = peer.connect(pid, { reliable: true }), t = setTimeout(() => { curErr = null; rej(new Error('no-room')); }, 8000);
+          const c = peer.connect(pid, { reliable: true }), t = setTimeout(() => { curErr = null; rej(new Error('p2p-fail')); }, 15000);
           curErr = e => { clearTimeout(t); rej(e); };
           c.on('open', () => { clearTimeout(t); curErr = null; wire(c); res(); });
         }); okc = true;
-      } catch (e) { if (e.message !== 'no-room') throw e; if (k < 3) await new Promise(r => setTimeout(r, 2500)); }
+      } catch (e) { if (e.message !== 'no-room' && e.message !== 'p2p-fail') throw e; lastE = e.message; if (k < 2) await new Promise(r => setTimeout(r, 2500)); }
     }
-    if (!okc) throw new Error('no-room');
+    if (!okc) throw new Error(lastE);
   }
   return { name: pid, peerjs: true, connected: () => !closed && !peer.destroyed, peers: list,
     presence: p => { mine = Object.assign({}, mine, p); Object.keys(mine).forEach(k => { if (mine[k] === null) delete mine[k]; }); sendAll({ t: 'p', p: mine }); fire(); return Promise.resolve(); },
@@ -2972,7 +2974,7 @@ async function pvQuit() {
   S.pv = null; ME = 0; A.setNames(null); S.exited = true; const b = $('#pvbar'); if (b) b.remove();
   PVP.ready = false; await NET.close();
 }
-const PVP_ERR = { 'claude-na': 'ห้องนี้ใช้ห้องสดของ claude.ai ต้องเปิดจากหน้า claude.ai ด้วยบัญชีที่ได้รับสิทธิ์ (ถ้าเข้าไม่ได้ ให้เจ้าของห้องเลือกวิธี PeerJS)', 'claude-timeout': 'ห้องสดของ claude.ai ไม่ตอบสนอง ลองใหม่หรือเลือกวิธี PeerJS', 'no-room': 'ไม่พบห้องรหัสนี้ (เจ้าของห้องต้องเปิดห้องค้างไว้ก่อน)', 'id-taken': 'รหัสห้องซ้ำ ลองสร้างใหม่', 'peer-load': 'โหลด PeerJS ไม่ได้ (ตรวจอินเทอร์เน็ต หรือบล็อกสคริปต์)', net: 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง' };
+const PVP_ERR = { 'claude-na': 'ห้องนี้ใช้ห้องสดของ claude.ai ต้องเปิดจากหน้า claude.ai ด้วยบัญชีที่ได้รับสิทธิ์ (ถ้าเข้าไม่ได้ ให้เจ้าของห้องเลือกวิธี PeerJS)', 'claude-timeout': 'ห้องสดของ claude.ai ไม่ตอบสนอง ลองใหม่หรือเลือกวิธี PeerJS', 'no-room': 'ไม่พบห้องรหัสนี้ (เจ้าของห้องต้องเปิดห้องค้างไว้ก่อน)', 'p2p-fail': 'เจอห้องในระบบแล้ว แต่เครื่องสองเครื่องต่อตรงกันไม่ได้ (เครือข่ายบล็อก P2P เช่น 4G/Wi-Fi บางแห่ง) ลองให้สองเครื่องใช้ Wi-Fi เดียวกัน หรือเปลี่ยนเครือข่าย', 'id-taken': 'รหัสห้องซ้ำ ลองสร้างใหม่', 'peer-load': 'โหลด PeerJS ไม่ได้ (ตรวจอินเทอร์เน็ต หรือบล็อกสคริปต์)', net: 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง' };
 async function pvpEnter(code, host) {
   if (PVP.busy) return;
   PVP.host = host; PVP.ready = false; PVP.busy = true; $('#pvp-create').disabled = $('#pvp-join').disabled = true;
